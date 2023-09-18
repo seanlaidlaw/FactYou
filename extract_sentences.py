@@ -88,9 +88,25 @@ def get_pmc_from_doi(doi):
 
 
 def clean_up_text(text):
-    text = re.sub(r"<[^>]+>", "", text)
-    text = re.sub(r"^[^A-Za-z]+", "", text)
-    text = re.sub(r"[^A-Za-z]+$", "", text)
+    # if passed text exists and is a tag we need to get text from the tag
+    if text:
+        if isinstance(text, Tag):
+            text = text.text
+
+    # if passed text exists and is a string we need to strip it
+    if text:
+        text = text.strip()
+        text = re.sub(r"<[^>]+>", "", text)  # Removing any HTML tags
+        text = re.sub(
+            r"^[^A-Za-z]+", "", text
+        )  # Stripping everything until the first letter/number/full stop
+        text = re.sub(
+            r"[^A-Za-z0-9.]$", "", text
+        )  # Stripping everything after the last letter/number/full stop
+
+        # remove unicode weirdness that sometimes ends up in strings
+        text = re.sub(r"\xa0", " ", text)  # no breaking space
+        text = text.strip()
     return text
 
 
@@ -218,38 +234,48 @@ def extract_text_and_refs(paragraph):
     Returns:
         tuple: A tuple containing lists of sentence fragments and references.
     """
-    current_text = ""
-    texts = []
-    references = []
 
-    print(f"> paragraph is:")
-    print(f"{paragraph}")
-    for child in paragraph.descendants:
-        print("> child is")
-        print(child)
+    # collapse structure of paragraph to a list of strings and <a> tags
+    paragraph_elements = []
+    for child in paragraph.children:
+        if isinstance(child, str):
+            paragraph_elements.append(child)
+        if isinstance(child, Tag):
+            if child.name == "a" and "bibr" in child.get("class", []):
+                paragraph_elements.append(child)
+            elif child.name == "sup":
+                for link in child.find_all("a", {"class": "bibr"}):
+                    paragraph_elements.append(link)
+
+    texts, references = [], []
+    current_text, just_processed_ref = "", False
+
+    for child in paragraph_elements:
+        # we check to see if the child is or contains a reference as we accumulate
+        # strings until we reach a reference at which we save what we have as the
+        # reference's corresponding text
         if contains_reference(child):
-            # if two references in a row (as measured by not having one more text than reference as usual)
-            # then use the previous text again as probably a second reference to same statmenet
-            if len(references) >= len(texts):
-                # if we start with a reference we can skip
-                if len(texts) > 0:
-                    texts.append(texts[-1])
-            references.append(extract_reference(child))
-            texts.append(current_text)
-            current_text = ""
-            print("> reference is: " + extract_reference(child))
-        else:
-            if child:
-                if "text" in child:
-                    child = child.text
-                    child = clean_up_text(child.strip())
-                    if child:
-                        current_text += child
+            current_ref = extract_reference(child)
+            references.append(current_ref)
+            # if there is no current text and we just processed a reference, it means this reference is in relation to last text
+            if not current_text and just_processed_ref and texts:
+                texts.append(texts[-1])
+            else:
+                current_text = current_text.strip()
+                if current_text:
+                    texts.append(current_text)
+                just_processed_ref = True
+                current_text = ""
+            continue
+        child = clean_up_text(child)
+        if child:
+            just_processed_ref = False
+            current_text += child
 
-    # if we have no references then we need not keep this paragraph
-    # if len(references) < 1:
-    # texts = []
-
+    if len(texts) != len(references):
+        warn(
+            f"Error: number of sentences ({len(texts)}) and references ({len(references)}) do not match for paragraph: {paragraph}"
+        )
     return texts, references
 
 
