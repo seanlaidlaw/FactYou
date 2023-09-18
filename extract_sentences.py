@@ -412,8 +412,7 @@ def find_section_div(soup):
                 section_div = h2.parent
                 return section_div
     else:
-        # Handle the case when the <h2> tag is not found
-        warn(f"Could not find appropriate section for paper  ({pmc_id}) / doi ({doi})")
+        # if <h2> tag is not found
         return None
 
 
@@ -449,7 +448,8 @@ class ArticleDatabase:
                     TextEmbeddings BLOB,
                     Reference INTEGER,
                     SrcDOI TEXT,
-                    RefDOI TEXT
+                    RefDOI TEXT,
+                    RefOther TEXT
                 )
             """
             )
@@ -468,7 +468,7 @@ class ArticleDatabase:
     def store_articles(self, content_list):
         with self.conn:
             self.conn.executemany(
-                "INSERT INTO Referenced VALUES (:Text, :Reference, :SrcDOI, :RefDOI)",
+                "INSERT INTO Referenced (Text, Reference, SrcDOI, RefDOI, RefOther) VALUES (:Text, :Reference, :SrcDOI, :RefDOI, :RefOther)",
                 content_list,
             )
 
