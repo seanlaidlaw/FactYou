@@ -1,0 +1,134 @@
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Search Similar Sentence</title>
+    <style>
+      body {
+        font-family: "Arial", sans-serif;
+        background-color: #e6e6e6;
+        margin: 0;
+        padding: 0;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 80px auto;
+        padding: 30px;
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0px 2px 30px rgba(0, 0, 0, 0.05);
+      }
+
+      textarea {
+        width: 100%;
+        padding: 15px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        font-size: 16px;
+        resize: none;
+        outline: none;
+      }
+
+      .results {
+        margin-top: 30px;
+      }
+
+      .result {
+        margin-bottom: 20px;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 20px;
+      }
+
+      .result:last-child {
+        border-bottom: none;
+      }
+
+      .result-text {
+        font-size: 18px;
+        line-height: 1.5;
+        font-style: italic;
+      }
+
+      .result-doi {
+        margin-top: 5px;
+        font-size: 14px;
+        color: #007bff;
+      }
+
+      .result-doi:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <textarea
+        name="sentence"
+        placeholder="Start typing your sentence..."
+        oninput="executeSearch(this.value)"
+      ></textarea>
+      <div class="results"></div>
+    </div>
+
+    <script>
+      function executeSearch(sentence) {
+        if (!sentence) return; // Don't execute an empty search
+
+        fetch("/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: "sentence=" + encodeURIComponent(sentence),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            let resultsDiv = document.querySelector(".results");
+            resultsDiv.innerHTML = "";
+
+            data.matching_entries.forEach((entry) => {
+              let resultDiv = document.createElement("div");
+              resultDiv.className = "result";
+
+              let resultText = document.createElement("div");
+              resultText.className = "result-text";
+              resultText.textContent = entry.Text;
+              resultDiv.appendChild(resultText);
+
+              if (entry.RefDOIs) {
+                entry.RefDOIs.forEach((refdoi) => {
+                  if (refdoi) {
+                    let resultDOI = document.createElement("a");
+                    resultDOI.className = "result-doi";
+                    resultDOI.href = "https://dx.doi.org/" + refdoi;
+                    resultDOI.textContent = "DOI: " + refdoi;
+                    resultDiv.appendChild(resultDOI);
+                    resultDiv.appendChild(document.createElement("br")); // Break line after each DOI
+                  }
+                });
+              }
+
+              if (entry.RefOther) {
+                entry.RefOther.forEach((refother) => {
+                  if (refother) {
+                    let resultOther = document.createElement("span");
+                    resultOther.className = "result-other";
+                    resultOther.textContent = refother;
+                    resultDiv.appendChild(resultOther);
+                    resultDiv.appendChild(document.createElement("br")); // Break line after each refother
+                  }
+                });
+              }
+
+              resultsDiv.appendChild(resultDiv);
+            });
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+          });
+      }
+    </script>
+  </body>
+</html>
