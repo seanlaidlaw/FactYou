@@ -508,7 +508,7 @@ class ArticleDatabase:
 
 
 def main():
-    bib_folder = "/Users/seanlaidlaw/Library/CloudStorage/GoogleDrive-seanlaidlaw95@gmail.com/.shortcut-targets-by-id/16zz-HLLhNYcHVuI8ONmvn-ed_kEi7Hnn/Paperpile/Bib Exports/"
+    bib_folder = "/Users/sl31/My Drive/Paperpile/Bib Exports"
     bib_dois = get_all_dois_from_folder(bib_folder)
 
     db = ArticleDatabase()
@@ -523,16 +523,14 @@ def main():
                 print(f"No PMC version of {doi} was available")
 
     for doi, pmc_id in db.get_pmc_articles():
-        if doi == "10.1016/j.semcancer.2009.02.007":
-            print(f"Running on paper: (doi: {doi}) (pmcid: {pmc_id})")
-            content_list = fetch_and_parse_article(doi=doi, pmc_id=pmc_id)
-            print(content_list)
-            # if content_list:
-            # db.store_articles(content_list)
-            # db.update_scanned_doi(parsed=1, doi=doi)
-            # else:
-            # warn(f"Error obtaining data for doi: {doi}")
-            time.sleep(5)
+        print(f"Running on paper: (doi: {doi}) (pmcid: {pmc_id})")
+        content_list = fetch_and_parse_article(doi=doi, pmc_id=pmc_id)
+        if content_list:
+            db.store_articles(content_list)
+            db.update_scanned_doi(parsed=1, doi=doi)
+        else:
+            warn(f"Error obtaining data for doi: {doi}")
+        time.sleep(5)
 
     db.close()
 
