@@ -59,6 +59,25 @@
       .result-doi:hover {
         text-decoration: underline;
       }
+
+      .result-other {
+        font-family: sans-serif;
+        font-size: small;
+        font-style: oblique;
+        color: dimgrey;
+        text-transform: lowercase;
+      }
+
+      .result-other-div {
+        display: none;
+      }
+
+      .show-citation {
+        cursor: pointer;
+        color: #007bff;
+        /* You can adjust the color */
+        text-decoration: underline;
+      }
     </style>
   </head>
 
@@ -110,16 +129,34 @@
                 });
               }
 
-              if (entry.RefOther) {
+              let citationContainer;
+              if (entry.RefOther && entry.RefOther.length > 0) {
+                // Create "Show Citation" button
+                let showCitationButton = document.createElement("span");
+                showCitationButton.className = "show-citation";
+                showCitationButton.textContent = `Show Citation (${entry.RefOther.length})`;
+                showCitationButton.addEventListener("click", function () {
+                  citationContainer.className =
+                    citationContainer.className === "result-other-div"
+                      ? ""
+                      : "result-other-div";
+                });
+                resultDiv.appendChild(showCitationButton);
+
+                citationContainer = document.createElement("div");
+                citationContainer.className = "result-other-div";
+
                 entry.RefOther.forEach((refother) => {
                   if (refother) {
                     let resultOther = document.createElement("span");
                     resultOther.className = "result-other";
                     resultOther.textContent = refother;
-                    resultDiv.appendChild(resultOther);
-                    resultDiv.appendChild(document.createElement("br")); // Break line after each refother
+                    citationContainer.appendChild(resultOther);
+                    citationContainer.appendChild(document.createElement("br")); // Break line after each refother
                   }
                 });
+
+                resultDiv.appendChild(citationContainer);
               }
 
               resultsDiv.appendChild(resultDiv);
