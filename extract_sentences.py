@@ -1,329 +1,475 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import json
 import os
 import re
 import sqlite3
+import time
+from datetime import datetime
+from logging import warn
 
 import bibtexparser
+import numpy as np
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 
-# Set user-agent headers
-headers = {
+USER_AGENT_HEADER = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36"
 }
+EUTILS_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+EUTILS_SUMMARY_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+CROSSREF_BASE_URL = "https://api.crossref.org/v1/works"
+PMC_BASE_URL = "https://www.ncbi.nlm.nih.gov/pmc/articles"
+DATABASE_NAME = "articles.db"
+
+
+def date_str_to_datetime(date_str):
+    try:
+        return datetime.strptime(date_str, "%Y %b %d").date()
+    except ValueError:
+        return None
+
+
+def fetch_from_url(url, params=None):
+    try:
+        response = requests.get(url, headers=USER_AGENT_HEADER, params=params)
+        response.raise_for_status()  # This will raise an HTTPError if the HTTP request returned an unsuccessful status code
+        return response.content
+    except requests.RequestException as e:
+        print(f"Error: Unable to fetch data from {url}. Reason: {e}")
+        return None
+
+
+def get_article_date(pmc_id):
+    params = {
+        "db": "pmc",
+        "id": pmc_id,
+        "tool": "FactYou",
+        "email": "seanlaidlaw95@gmail.com",
+    }
+    response_xml = fetch_from_url(EUTILS_SUMMARY_BASE_URL, params)
+    if response_xml:
+        soup = BeautifulSoup(response_xml, "xml")
+        date_str = (
+            soup.find("Item", {"Name": "PubDate"}).text
+            if soup.find("Item", {"Name": "PubDate"})
+            else ""
+        )
+        return date_str_to_datetime(date_str)
+    return None
+
+
+def sort_pmc_ids_by_date(pmc_ids):
+    pmc_date_pairs = [(pmc_id, get_article_date(pmc_id)) for pmc_id in pmc_ids]
+    sorted_pairs = sorted(pmc_date_pairs, key=lambda x: x[1])
+    sorted_ids = [pair[0] for pair in sorted_pairs if pair[1] is not None]
+    return sorted_ids
 
 
 def get_pmc_from_doi(doi):
-    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     params = {
         "db": "pmc",
         "term": doi,
         "tool": "FactYou",
         "email": "seanlaidlaw95@gmail.com",
     }
-
-    response = requests.get(base_url, params=params)
-    response_xml = response.content
-
-    pmc_id = None
-
-    # Parsing XML response to extract the PMC ID
-    soup = BeautifulSoup(response_xml, "xml")
-    id_list = soup.find("IdList")
-    if id_list:
-        pmc_id_tag = id_list.find("Id")
-        if pmc_id_tag:
-            pmc_id = pmc_id_tag.text
-
-    return pmc_id
-
-
-def extract_text_and_refs(paragraph):
-    """Extract text and references from a paragraph."""
-    sentence_fragments = []
-    references = []
-    current_text = ""
-
-    for child in paragraph.children:
-        # If the child is an "a" tag with class "bibr" or contains one
-        if isinstance(child, (str, bytes)):
-            current_text += child
-        elif (
-            child.name == "a"
-            and "bibr" in child.get("class", [])
-            or child.find("a", class_="bibr")
-        ):
-            ref = child.find("a", class_="bibr") if child.name != "a" else child
-            if ref:
-                sentence_fragments.append(clean_up_text(current_text.strip()))
-
-                # Extract only the number from the 'rid' attribute
-                rid = ref.attrs.get("rid", "")
-                match = re.search(r"(\d+)", rid)
-                ref_number = match.group(1) if match else "No number found"
-
-                references.append(ref_number)
-                current_text = ""
-        else:
-            current_text += str(child)
-
-    # To handle any remaining text after the last reference
-    if current_text.strip():
-        sentence_fragments.append(current_text.strip())
-
-    return sentence_fragments, references
+    response_xml = fetch_from_url(EUTILS_BASE_URL, params)
+    if response_xml:
+        soup = BeautifulSoup(response_xml, "xml")
+        error_list = soup.find("ErrorList")
+        if not error_list:
+            id_list = soup.find("IdList")
+            if id_list:
+                pmc_ids = [tag.text for tag in id_list.find_all("Id")]
+                sorted_pmc_ids = sort_pmc_ids_by_date(pmc_ids)
+                oldest_pmc_id = sorted_pmc_ids[0] if sorted_pmc_ids else None
+                return oldest_pmc_id
+    return None
 
 
 def clean_up_text(text):
-    # Remove all HTML tags
     text = re.sub(r"<[^>]+>", "", text)
-
-    # Remove all characters before the first [A-Za-z] appears
     text = re.sub(r"^[^A-Za-z]+", "", text)
-
+    text = re.sub(r"[^A-Za-z]+$", "", text)
     return text
 
 
+def fetch_and_parse_article(doi, pmc_id):
+    """
+    Fetch and parse the article based on given DOI and PMC ID.
+
+    Args:
+        doi (str): The DOI of the article.
+        pmc_id (str): The PMC ID of the article.
+
+    Returns:
+        list: A list of content (sentence/reference pairs) or None.
+    """
+    if not valid_input(doi, pmc_id):
+        warn(
+            f"Invalid inputs provided to obtain article from doi ({doi}) / pmcid ({pmc_id})"
+        )
+        return None
+
+    soup_content = fetch_from_url(f"{PMC_BASE_URL}/PMC{pmc_id}")
+    if not soup_content:
+        warn(f"Error fetching request to obtain article from pmcid ({pmc_id})")
+        return None
+
+    soup = BeautifulSoup(soup_content, "html.parser")
+    if not soup:
+        warn(f"Error parsing html of article from pmcid ({pmc_id})")
+
+    section_div = find_section_div(soup)
+    if not section_div:
+        warn(f"Could not find appropriate section for PMC ({pmc_id}) / doi ({doi})")
+        return None
+
+    paper_refs = get_references_from_doi(doi)
+    if not paper_refs:
+        warn(f"Could not find references for doi ({doi})")
+        return None
+    content_list = build_content_list(section_div, paper_refs, doi)
+
+    return content_list
+
+
+def valid_input(doi, pmc_id):
+    """
+    Validate the inputs.
+
+    Args:
+        doi (str): The DOI of the article.
+        pmc_id (str): The PMC ID of the article.
+
+    Returns:
+        bool: True if inputs are valid, False otherwise.
+    """
+    if not doi:
+        warn(f"No valid doi was passed to function. Received doi of value: {doi}")
+        return False
+
+    if not pmc_id:
+        warn(
+            f"No valid PMC ID was passed to function. Received PMC ID of value: {pmc_id}"
+        )
+        return False
+
+    return True
+
+
+def build_content_list(section_div, paper_refs, doi):
+    """
+    Build the content list based on section_div and references.
+
+    Args:
+        section_div (bs4.Tag): The section of the article (e.g., Introduction).
+        paper_refs (dict): The references of the paper.
+        doi (str): The DOI of the article.
+
+    Returns:
+        list: A list of content (sentence/reference pairs).
+    """
+    paragraphs = section_div.find_all("p")
+    content_list = []
+
+    for paragraph in paragraphs:
+        sentence_fragments, references = extract_text_and_refs(paragraph)
+        for text, ref in zip(sentence_fragments, references):
+            ref_doi = get_doi_from_reference_number(paper_refs, ref)
+
+            if ref_doi:
+                content_list.append(
+                    {
+                        "Text": text,
+                        "Reference": ref,
+                        "SrcDOI": doi,
+                        "RefDOI": ref_doi,
+                        "RefOther": None,
+                    }
+                )
+            else:
+                ref_unstruct = get_unstructured_from_reference_number(paper_refs, ref)
+                if ref_unstruct:
+                    content_list.append(
+                        {
+                            "Text": text,
+                            "Reference": ref,
+                            "SrcDOI": doi,
+                            "RefDOI": None,
+                            "RefOther": ref_unstruct,
+                        }
+                    )
+                else:
+                    warn(
+                        f"Error: no DOI or unstructured found for Reference: {ref}, in paper: {doi}"
+                    )
+
+    return content_list
+
+
+def extract_text_and_refs(paragraph):
+    """
+    Extract text and references from the given paragraph.
+
+    Args:
+        paragraph (bs4.Tag): A paragraph from the article.
+
+    Returns:
+        tuple: A tuple containing lists of sentence fragments and references.
+    """
+    texts = []
+    references = []
+
+    for child in paragraph.children:
+        if contains_reference(child):
+            # if two references in a row (as measured by not having one more text than reference as usual)
+            # then use the previous text again as probably a second reference to same statmenet
+            if len(references) >= len(texts):
+                # if we start with a reference we can skip
+                if len(texts) > 0:
+                    texts.append(texts[-1])
+            references.append(extract_reference(child))
+        else:
+            child = clean_up_text(child.text.strip())
+            if child != "":
+                texts.append(child)
+
+    return texts, references
+
+
+def contains_reference(child):
+    """
+    Check if the child contains a reference.
+
+    Args:
+        child (bs4.Tag or bs4.NavigableString): A child element of the paragraph.
+
+    Returns:
+        bool: True if it contains a reference, False otherwise.
+    """
+    if isinstance(child, Tag):
+        condition1 = child.name == "a" and "bibr" in child.get("class", [])
+        condition2 = child.find_all("a", attrs={"class": "bibr"})
+        return condition1 or bool(condition2)
+
+    return False
+
+
+def extract_reference(tag):
+    """
+    Extract the reference number from the tag.
+
+    Args:
+        tag (bs4.Tag): The tag containing the reference.
+
+    Returns:
+        str: The extracted reference number or an empty string if not found.
+    """
+    if tag.name != "a":
+        tag = tag.find("a", {"class": "bibr"})
+
+    rid = tag.attrs.get("rid", "")
+    match = re.search(r"(\d+)", rid)
+    if match:
+        return match.group(1)
+    else:
+        warn(f"No number found for sentence: {tag}")
+        return ""
+
+
 def get_references_from_doi(doi):
-    """Fetch the reference array for a given DOI."""
-    url = f"https://api.crossref.org/v1/works/{doi}"
-    response = requests.get(url)
-
-    if response.status_code != 200:
-        print(f"Error {response.status_code}: Unable to fetch data for DOI {doi}")
-        return []
-
-    data = response.json()
-    references = data["message"].get("reference", [])
-    return references
+    data = fetch_from_url(f"{CROSSREF_BASE_URL}/{doi}")
+    if data:
+        try:
+            json_data = json.loads(data)
+            return json_data["message"].get("reference", [])
+        except json.JSONDecodeError:
+            print(f"Error decoding JSON data for DOI: {doi}")
+    return []
 
 
 def get_doi_from_reference_number(references, ref_number):
-    """Retrieve the DOI from a specific reference entry by its number."""
-    ref_number = int(ref_number)
-    try:
-        ref_entry = references[ref_number - 1]  # Adjusting for 0-based indexing
-        return ref_entry.get("DOI", "DOI not found")
-    except IndexError:
-        print(f"Reference number {ref_number} not found in DOI {doi}")
+    if ref_number == None:
+        print("Ref number is None")
         return None
+    if ref_number is not None:
+        try:
+            index = int(ref_number) - 1
+            try:
+                # Now use index to access references
+                return references[index].get("DOI", "DOI not found")
+            except IndexError:
+                print(f"Reference number {ref_number} not found")
+                return None
+        except ValueError:
+            print("DOI not found")
+            return None
 
 
-def setup_database():
-    conn = sqlite3.connect("articles.db")
-    c = conn.cursor()
-    c.execute(
-        """
-        CREATE TABLE IF NOT EXISTS Referenced (
-            Text TEXT,
-            Reference INTEGER,
-            SrcDOI TEXT,
-            RefDOI TEXT
-        )
-    """
-    )
-    conn.commit()
-    c.execute(
-        """
-        CREATE TABLE IF NOT EXISTS Scanned (
-            DOI TEXT
-        )
-    """
-    )
-    conn.commit()
-    return conn
-
-
-def store_to_database(conn, content_list):
-    c = conn.cursor()
-    c.executemany(
-        "INSERT INTO Referenced VALUES (:Text, :Reference, :SrcDOI, :RefDOI)",
-        content_list,
-    )
-    conn.commit()
-
-
-def save_src_to_database(conn, doi):
-    c = conn.cursor()
-    c.execute("INSERT INTO Scanned VALUES (:DOI)", [str(doi)])
-    conn.commit()
-
-
-def fetch_and_parse_article(doi):
-    pmc_id = get_pmc_from_doi(doi)
-    if not pmc_id:
-        print(f"No PMC version of {doi} was available")
-        return
-
-    pmc_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{pmc_id}"
-    response = requests.get(pmc_url, headers=headers)
-
-    if response.status_code != 200:
-        print(f"Error fetching content for {doi}")
-        return
-
-    soup = BeautifulSoup(response.content, "html.parser")
-    section_div = find_section_div(soup)
-
-    if not section_div:
-        print(f"Could not find appropriate section for PMC ({pmc_id}) / doi ({doi})")
-        return
-
-    paper_refs = get_references_from_doi(doi)
-    paragraphs = section_div.find_all("p")
-
-    return build_content_list(paragraphs, paper_refs, doi)
+def get_unstructured_from_reference_number(references, ref_number):
+    if ref_number is not None:
+        try:
+            index = int(ref_number) - 1
+            try:
+                # Now use index to access references
+                ref = references[index]
+                if "unstructured" in ref:
+                    return ref.get("unstructured")
+                else:
+                    warn(
+                        f"Can't find unstructured for reference number {ref_number} in paper"
+                    )
+                    return None
+            except IndexError:
+                warn(f"Reference number {ref_number} not found")
+                return None
+        except ValueError:
+            print("DOI not found")
+            return None
 
 
 def find_section_div(soup):
-    # List of potential div IDs to check
     div_ids = ["S1", "Sec1", "s1", "sec001", "s001"]
-
     for div_id in div_ids:
         div = soup.find("div", id=div_id)
         if div:
             return div
 
-    # If none of the above IDs match, look for the h2 containing Introduction/Background
-    h2_tag = soup.find(
-        "h2",
-        string=lambda s: ("introduction" in s.lower()) or ("background" in s.lower()),
-    )
-    return h2_tag.find_parent("div") if h2_tag else None
+    h2_tags = soup.find_all("h2")
 
-
-def build_content_list(paragraphs, paper_refs, doi):
-    content_list = []
-    for paragraph in paragraphs:
-        sentence_fragments, references = extract_text_and_refs(paragraph)
-        for text, ref in zip(sentence_fragments, references):
-            ref_doi = get_doi_from_reference_number(paper_refs, ref)
-            if ref_doi and ref_doi != "DOI not found":
-                content_list.append(
-                    {"Text": text, "Reference": ref, "SrcDOI": doi, "RefDOI": ref_doi}
-                )
-            else:
-                print(f"Error: no DOI found for Reference: {ref}, in paper: {doi}")
-
-    if not content_list:
-        print(f"Couldn't find any sentence/references for PMC article with DOI {doi}")
-        return
-    return content_list
-
-
-# def fetch_and_parse_article(doi):
-# pmc_id = get_pmc_from_doi(doi)
-# if not pmc_id:
-# print(f"No PMC version of {doi} was available")
-# return None
-
-# pmc_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{pmc_id}"
-# response = requests.get(pmc_url, headers=headers)
-# soup = BeautifulSoup(response.content, 'html.parser')
-
-
-# section_div = soup.find('div', id='S1')
-# if not section_div:
-# section_div = soup.find('div', id='Sec1')
-# if not section_div:
-# section_div = soup.find('div', id='s1')
-# if not section_div:
-# section_div = soup.find('div', id='sec001')
-# if not section_div:
-# section_div = soup.find('div', id='s001')
-# # or look for a h2 with text containing Introduction or Background
-# if not section_div:
-# # Find the first <h2> that contains "introduction" or "background" (case insensitive)
-# h2_tag = soup.find('h2', string=lambda s: ("introduction" in s.lower()) or ("background" in s.lower()))
-
-# if not h2_tag:
-# print("No matching <h2> tag found!")
-# return None
-# # Find the containing div for that <h2>
-# section_div = h2_tag.find_parent('div')
-# if not section_div:
-# print(f"Div with id 'S1' or 'Sec1' not found! for PMC ({pmc_id}) / doi ({doi})")
-# return None
-
-# paper_refs = get_references_from_doi(doi)
-# paragraphs = section_div.find_all('p')
-
-# content_list = []
-# for paragraph in paragraphs:
-# sentence_fragments, references = extract_text_and_refs(paragraph)
-# for text, ref in zip(sentence_fragments, references):
-# ref_doi = get_doi_from_reference_number(paper_refs, ref)
-# if ref_doi:
-# if ref_doi != "DOI not found":
-# content_list.append({'Text': text, 'Reference': ref, 'SrcDOI': doi, 'RefDOI': ref_doi})
-# else:
-# print(f"Error: no DOI found for Reference: {ref}, in paper: {doi}")
-
-# if len(content_list) == 0:
-# print(f"Couldn't find any sentence / references for PMC article: {pmc_id}")
-# return None
-# return content_list
+    for h2 in h2_tags:
+        if (
+            "introduction" in h2.text.lower()
+            or "background" in h2.text.lower()
+            or h2.text.lower() == "main"
+        ):
+            if h2.parent and h2.parent.name == "div":
+                section_div = h2.parent
+                return section_div
+    else:
+        # Handle the case when the <h2> tag is not found
+        warn(f"Could not find appropriate section for paper  ({pmc_id}) / doi ({doi})")
+        return None
 
 
 def extract_dois_from_bib(bib_file_path):
-    """Extract DOIs from a .bib file."""
     with open(bib_file_path, "r") as bibfile:
         bib_database = bibtexparser.load(bibfile)
-
-    # Extract DOIs from entries
     return [
         entry.get("doi", "").strip() for entry in bib_database.entries if "doi" in entry
     ]
 
 
 def get_all_dois_from_folder(bib_folder):
-    """Get all DOIs from all .bib files in the specified folder."""
     all_dois = []
-
-    # Loop over all files in the folder
     for bib_file in os.listdir(bib_folder):
-        # only look at bib files
-        if bib_file.endswith(".bib"):
-            # exclude my export of everything
-            if bib_file != "paperpile.bib":
-                bib_file_path = os.path.join(bib_folder, bib_file)
-                all_dois.extend(extract_dois_from_bib(bib_file_path))
-
+        if bib_file.endswith(".bib") and bib_file != "paperpile.bib":
+            bib_file_path = os.path.join(bib_folder, bib_file)
+            all_dois.extend(extract_dois_from_bib(bib_file_path))
     return all_dois
 
 
-def doi_exists_in_src_db(conn, doi):
-    """Check if a DOI already exists in the SrcDOI column of the database."""
-    cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM Referenced WHERE SrcDOI = ?", (doi,))
-    result = cursor.fetchone()
-    return result is not None
+class ArticleDatabase:
+    def __init__(self, db_name="articles.db"):
+        self.conn = sqlite3.connect(db_name)
+        self._setup_tables()
+
+    def _setup_tables(self):
+        with self.conn:
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS Referenced (
+                    Text TEXT,
+                    Reference INTEGER,
+                    SrcDOI TEXT,
+                    RefDOI TEXT
+                )
+            """
+            )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS Scanned (
+                    DOI TEXT,
+                    PMCID TEXT,
+                    Parsed BOOLEAN NOT NULL CHECK (Parsed IN (0, 1)),
+                    Hashed BOOLEAN NOT NULL CHECK (Hashed IN (0, 1)),
+                    Skipped BOOLEAN NOT NULL CHECK (Skipped IN (0, 1))
+                )
+            """
+            )
+
+    def store_articles(self, content_list):
+        with self.conn:
+            self.conn.executemany(
+                "INSERT INTO Referenced VALUES (:Text, :Reference, :SrcDOI, :RefDOI)",
+                content_list,
+            )
+
+    def save_scanned_doi(self, doi, pmc_id, skipped=0):
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO Scanned VALUES (:DOI, :PMCID, :Parsed, :Hashed, :Skipped)",
+                (doi, pmc_id, 0, 0, skipped),
+            )
+
+    def update_scanned_doi(self, doi, parsed=None, hashed=None):
+        if parsed:
+            with self.conn:
+                self.conn.execute(
+                    "UPDATE Scanned SET Parsed = 1 WHERE DOI = ?;", (doi,)
+                )
+        if hashed:
+            with self.conn:
+                self.conn.execute(
+                    "UPDATE Scanned SET Hashed = 1 WHERE DOI = ?;", (doi,)
+                )
+
+    def doi_exists(self, doi):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT 1 FROM Scanned WHERE DOI = ?", (doi,))
+        return cursor.fetchone() is not None
+
+    def get_pmc_articles(self):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT DOI, PMCID FROM Scanned WHERE Skipped == 0 AND Parsed == 0;"
+        )
+        return cursor.fetchall()
+
+    def close(self):
+        self.conn.close()
+
+
+def main():
+    bib_folder = "/Users/seanlaidlaw/Library/CloudStorage/GoogleDrive-seanlaidlaw95@gmail.com/.shortcut-targets-by-id/16zz-HLLhNYcHVuI8ONmvn-ed_kEi7Hnn/Paperpile/Bib Exports/"
+    bib_dois = get_all_dois_from_folder(bib_folder)
+
+    db = ArticleDatabase()
+
+    for doi in bib_dois:
+        if not db.doi_exists(doi):
+            pmc_id = get_pmc_from_doi(doi)
+            if pmc_id:
+                db.save_scanned_doi(doi, pmc_id)
+            else:
+                db.save_scanned_doi(doi=doi, pmc_id=None, skipped=1)
+                print(f"No PMC version of {doi} was available")
+
+    for doi, pmc_id in db.get_pmc_articles():
+        print(f"Running on paper: (doi: {doi}) (pmcid: {pmc_id})")
+        content_list = fetch_and_parse_article(doi=doi, pmc_id=pmc_id)
+        print(content_list)
+        if content_list:
+            db.store_articles(content_list)
+            db.update_scanned_doi(parsed=1, doi=doi)
+        else:
+            print(f"Error obtaining data for doi: {doi}")
+        time.sleep(5)
+
+    db.close()
 
 
 if __name__ == "__main__":
-    bib_folder = "/Users/seanlaidlaw/Library/CloudStorage/GoogleDrive-seanlaidlaw95@gmail.com/.shortcut-targets-by-id/16zz-HLLhNYcHVuI8ONmvn-ed_kEi7Hnn/Paperpile/Bib Exports/"
-    all_dois = get_all_dois_from_folder(bib_folder)
-
-    # Establish a connection to the database
-    # conn = setup_database()
-
-    for doi in all_dois:
-        print(f"Running on doi: {doi}")
-        # if not doi_exists_in_src_db(conn, doi):
-        content_list = fetch_and_parse_article(doi)
-        # if content_list:
-        # store_to_database(conn, content_list)
-        # else:
-        # print(f"Error obtaining data and working for doi: {doi}")
-
-        # # Wait for 5 seconds before processing the next DOI
-        # time.sleep(5)
-        # else:
-        # print(f"DOI {doi} already exists in the database, skipping...")
-
-        # # save the DOI to database so we don't retry it
-        # save_src_to_database(conn, doi)
-
-    # conn.close()
+    main()
