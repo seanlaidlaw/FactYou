@@ -10,7 +10,6 @@ from datetime import datetime
 from logging import warn
 
 import bibtexparser
-import numpy as np
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 
@@ -219,10 +218,15 @@ def extract_text_and_refs(paragraph):
     Returns:
         tuple: A tuple containing lists of sentence fragments and references.
     """
+    current_text = ""
     texts = []
     references = []
 
-    for child in paragraph.children:
+    print(f"> paragraph is:")
+    print(f"{paragraph}")
+    for child in paragraph.descendants:
+        print("> child is")
+        print(child)
         if contains_reference(child):
             # if two references in a row (as measured by not having one more text than reference as usual)
             # then use the previous text again as probably a second reference to same statmenet
@@ -231,12 +235,69 @@ def extract_text_and_refs(paragraph):
                 if len(texts) > 0:
                     texts.append(texts[-1])
             references.append(extract_reference(child))
+            texts.append(current_text)
+            current_text = ""
+            print("> reference is: " + extract_reference(child))
         else:
-            child = clean_up_text(child.text.strip())
-            if child != "":
-                texts.append(child)
+            if child:
+                if "text" in child:
+                    child = child.text
+                    child = clean_up_text(child.strip())
+                    if child:
+                        current_text += child
+
+    # if we have no references then we need not keep this paragraph
+    # if len(references) < 1:
+    # texts = []
 
     return texts, references
+
+
+# def merge_style_tags(children):
+# merged = []
+# for child in children:
+# if isinstance(child, NavigableString):
+# # For text nodes, sup, or a tags, just append to the list
+# merged.append(child)
+# elif child.name in ["em", "strong", "i"]:
+# # For style tags, add content to the previous node if it's a text node
+# # Else append as a new node
+# if merged and isinstance(merged[-1], NavigableString):
+# merged[-1] = NavigableString(merged[-1] + child.string)
+# else:
+# merged.append(child.string)
+# return merged
+
+
+def contains_bibr_reference(tag):
+    return tag.find("a", class_="bibr") is not None
+
+
+def merge_style_tags(children):
+    merged = []
+    buffer = ""
+
+    for child in children:
+        if isinstance(child, NavigableString):
+            buffer += child
+        elif contains_bibr_reference(child):
+            # For tags containing <a class="bibr">, append the buffer and the reference to the list
+            if buffer:
+                merged.append(buffer.strip())
+                buffer = ""
+            # You can either add the entire child or just the nested <a class="bibr">
+            # merged.append(child.find("a", class_="bibr"))
+            merged.append(child)
+        elif child.name in ["em", "strong", "i"]:
+            # For style tags, add content to the buffer
+            buffer += child.get_text()
+        else:
+            buffer += child.get_text()
+
+    # Append any remaining buffer to the merged list
+    if buffer:
+        merged.append(buffer.strip())
+    return merged
 
 
 def contains_reference(child):
@@ -299,7 +360,7 @@ def get_doi_from_reference_number(references, ref_number):
             index = int(ref_number) - 1
             try:
                 # Now use index to access references
-                return references[index].get("DOI", "DOI not found")
+                return references[index].get("DOI", None)
             except IndexError:
                 print(f"Reference number {ref_number} not found")
                 return None
@@ -317,9 +378,11 @@ def get_unstructured_from_reference_number(references, ref_number):
                 ref = references[index]
                 if "unstructured" in ref:
                     return ref.get("unstructured")
+                elif len(ref.keys()) > 0:
+                    return json.dumps(ref)
                 else:
                     warn(
-                        f"Can't find unstructured for reference number {ref_number} in paper"
+                        f"Can't find any info for reference number {ref_number} in paper"
                     )
                     return None
             except IndexError:
@@ -382,6 +445,8 @@ class ArticleDatabase:
                 """
                 CREATE TABLE IF NOT EXISTS Referenced (
                     Text TEXT,
+                    TextWtContext TEXT,
+                    TextEmbeddings BLOB,
                     Reference INTEGER,
                     SrcDOI TEXT,
                     RefDOI TEXT
@@ -458,15 +523,16 @@ def main():
                 print(f"No PMC version of {doi} was available")
 
     for doi, pmc_id in db.get_pmc_articles():
-        print(f"Running on paper: (doi: {doi}) (pmcid: {pmc_id})")
-        content_list = fetch_and_parse_article(doi=doi, pmc_id=pmc_id)
-        print(content_list)
-        if content_list:
-            db.store_articles(content_list)
-            db.update_scanned_doi(parsed=1, doi=doi)
-        else:
-            print(f"Error obtaining data for doi: {doi}")
-        time.sleep(5)
+        if doi == "10.1016/j.semcancer.2009.02.007":
+            print(f"Running on paper: (doi: {doi}) (pmcid: {pmc_id})")
+            content_list = fetch_and_parse_article(doi=doi, pmc_id=pmc_id)
+            print(content_list)
+            # if content_list:
+            # db.store_articles(content_list)
+            # db.update_scanned_doi(parsed=1, doi=doi)
+            # else:
+            # warn(f"Error obtaining data for doi: {doi}")
+            time.sleep(5)
 
     db.close()
 
