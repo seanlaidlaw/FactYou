@@ -61,8 +61,10 @@ def get_article_date(pmc_id):
 
 def sort_pmc_ids_by_date(pmc_ids):
     pmc_date_pairs = [(pmc_id, get_article_date(pmc_id)) for pmc_id in pmc_ids]
-    sorted_pairs = sorted(pmc_date_pairs, key=lambda x: x[1])
-    sorted_ids = [pair[0] for pair in sorted_pairs if pair[1] is not None]
+    # Filter out pairs where the date is None
+    filtered_pairs = [pair for pair in pmc_date_pairs if pair[1] is not None]
+    sorted_pairs = sorted(filtered_pairs, key=lambda x: x[1])
+    sorted_ids = [pair[0] for pair in sorted_pairs]
     return sorted_ids
 
 
