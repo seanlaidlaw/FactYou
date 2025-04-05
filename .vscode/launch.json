@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Run FactYou",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "factyu.main",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "python": "/Users/sl31/miniforge3/envs/factyou/bin/python"
+    },
+    {
+      "name": "Python: Run FactYou [Clean]",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "factyu.main",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "args": ["--clean"],
+      "python": "/Users/sl31/miniforge3/envs/factyou/bin/python"
+    },
+    {
+      "name": "Python Debugger: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal"
+    }
+  ]
+}

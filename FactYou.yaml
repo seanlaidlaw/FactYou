@@ -2,7 +2,6 @@ name: FactYou
 channels:
   - conda-forge
   - bioconda
-  - defaults
 dependencies:
   - bzip2=1.0.8=h0d85af4_4
   - ca-certificates=2023.7.22=h8857fd0_0
@@ -17,13 +16,14 @@ dependencies:
   - readline=8.2=h9e318b2_1
   - setuptools=68.2.2=pyhd8ed1ab_0
   - tk=8.6.12=h5dbffcc_0
-  - tzdata=2023c=h71feb2d_0
   - wheel=0.41.2=pyhd8ed1ab_0
   - xz=5.2.6=h775f41a_0
   - pip:
       - annotated-types==0.5.0
+      - appdirs==1.4.4
       - beautifulsoup4==4.12.2
       - bibtexparser==1.4.0
+      - bidict==0.23.1
       - blinker==1.6.2
       - blis==0.7.10
       - catalogue==2.0.9
@@ -36,14 +36,18 @@ dependencies:
       - distlib==0.3.7
       - en-core-web-lg==3.6.0
       - en-core-web-sm==3.6.0
+      - exceptiongroup==1.2.2
       - filelock==3.12.4
       - flask==2.3.3
+      - flask-socketio==5.5.1
       - fsspec==2023.9.1
       - greenlet==2.0.2
+      - h11==0.14.0
       - huggingface-hub==0.17.2
       - identify==2.5.29
       - idna==3.4
       - importlib-metadata==6.8.0
+      - iniconfig==2.1.0
       - itsdangerous==2.1.2
       - jinja2==3.1.2
       - joblib==1.3.2
@@ -58,15 +62,28 @@ dependencies:
       - nodeenv==1.8.0
       - numpy==1.26.0
       - packaging==23.1
+      - pandas==2.2.3
       - pathy==0.10.2
       - pillow==10.0.1
       - platformdirs==3.10.0
+      - pluggy==1.5.0
       - pre-commit==3.4.0
       - preshed==3.0.9
+      - protobuf==6.30.1
       - pydantic==2.3.0
       - pydantic-core==2.6.3
       - pynvim==0.4.3
       - pyparsing==3.1.1
+      - pyqt6==6.8.1
+      - pyqt6-qt6==6.8.2
+      - pyqt6-sip==13.10.0
+      - pyqt6-webengine==6.8.0
+      - pyqt6-webengine-qt6==6.8.2
+      - pytest==8.3.5
+      - python-dateutil==2.9.0.post0
+      - python-engineio==4.11.2
+      - python-socketio==5.12.1
+      - pytz==2025.2
       - pyyaml==6.0.1
       - regex==2023.8.8
       - requests==2.31.0
@@ -75,6 +92,8 @@ dependencies:
       - scipy==1.11.2
       - sentence-transformers==2.2.2
       - sentencepiece==0.1.99
+      - simple-websocket==1.1.0
+      - six==1.17.0
       - sklearn==0.0.post9
       - smart-open==6.4.0
       - soupsieve==2.5
@@ -86,6 +105,7 @@ dependencies:
       - thinc==8.1.12
       - threadpoolctl==3.2.0
       - tokenizers==0.13.3
+      - tomli==2.2.1
       - torch==2.0.1
       - torchvision==0.15.2
       - tqdm==4.66.1
@@ -94,9 +114,11 @@ dependencies:
       - types-requests==2.31.0.2
       - types-urllib3==1.26.25.14
       - typing-extensions==4.8.0
+      - tzdata==2025.2
       - urllib3==2.0.4
       - virtualenv==20.24.5
       - wasabi==1.1.2
       - werkzeug==2.3.7
+      - wsproto==1.2.0
       - zipp==3.16.2
 prefix: /Users/sl31/miniforge3/envs/FactYou

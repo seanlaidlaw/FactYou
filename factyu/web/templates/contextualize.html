@@ -1,0 +1,140 @@
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FactYou - Contextualizing</title>
+    <style>
+      body {
+        font-family: "Arial", sans-serif;
+        background-color: #e6e6e6;
+        margin: 0;
+        padding: 0;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 80px auto;
+        padding: 30px;
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0px 2px 30px rgba(0, 0, 0, 0.05);
+        text-align: center;
+      }
+
+      h1 {
+        font-size: 2em;
+        margin-bottom: 20px;
+      }
+
+      p {
+        font-size: 1em;
+        margin-bottom: 30px;
+      }
+
+      button {
+        padding: 10px 20px;
+        font-size: 16px;
+        border: none;
+        border-radius: 4px;
+        background-color: #007bff;
+        color: white;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        background-color: #aaa;
+        cursor: not-allowed;
+      }
+
+      button:hover:enabled {
+        background-color: #0056b3;
+      }
+
+      /* Alert bubble styling */
+      .alert {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background-color: #f44336;
+        /* red background */
+        color: white;
+        padding: 15px;
+        border-radius: 4px;
+        box-shadow: 0px 2px 10px rgba(0, 0, 0, 0.1);
+        z-index: 1000;
+      }
+
+      /* Progress bar styling */
+      #progress-container {
+        margin-top: 20px;
+      }
+
+      #progress-bar {
+        width: 100%;
+        height: 25px;
+      }
+
+      #warnings {
+        margin-top: 10px;
+        text-align: left;
+        font-size: 0.9em;
+        color: #d9534f;
+      }
+    </style>
+    <!-- Include the QWebChannel JavaScript library -->
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+  </head>
+
+  <body>
+    <!-- Flash messages from Flask (if any) -->
+    {% with messages = get_flashed_messages(with_categories=true) %} {% if
+    messages %} {% for category, message in messages %}
+    <div class="alert">{{ message }}</div>
+    {% endfor %} {% endif %} {% endwith %}
+
+    <div class="container">
+      <h1>FactYou</h1>
+      <p>Click the button below to start contextualizing fragments.</p>
+      <button id="contextualizeBtn">Start Contextualization</button>
+      <div id="result"></div>
+      <!-- Progress bar and warnings -->
+      <div id="progress-container">
+        <progress id="progress-bar" value="0" max="100"></progress>
+        <div id="warnings"></div>
+      </div>
+    </div>
+
+    <script>
+      var socket = io();
+
+      socket.on("progress", function (data) {
+        document.getElementById("progress-bar").value = data.percentage;
+        var warningsDiv = document.getElementById("warnings");
+        warningsDiv.innerHTML += "<p>" + data.message + "</p>";
+      });
+
+      document
+        .getElementById("contextualizeBtn")
+        .addEventListener("click", function () {
+          this.disabled = true;
+
+          fetch("/contextualize_fragments", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          })
+            .then((response) => response.json())
+            .then((data) => {
+              document.getElementById("result").innerText = data.message;
+            })
+            .catch((error) => {
+              console.error("Error:", error);
+              document.getElementById("result").innerText =
+                "An error occurred.";
+            });
+        });
+    </script>
+  </body>
+</html>
