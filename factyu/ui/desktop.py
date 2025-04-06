@@ -59,7 +59,7 @@ class Bridge(QObject):
 class MainWindow(QMainWindow):
     def __init__(self, user_email):
         super().__init__()
-        self.setWindowTitle("FactYou Desktop")
+        self.setWindowTitle("FactYou")
         self.setGeometry(100, 100, 1200, 800)
         self.web_view = QWebEngineView(self)
         self.setCentralWidget(self.web_view)

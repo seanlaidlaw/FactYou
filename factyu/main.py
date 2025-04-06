@@ -1,7 +1,9 @@
+import os
 import sys
 import threading
 
 from PyQt6.QtCore import QSettings
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
 from factyu.ui.desktop import MainWindow
@@ -9,8 +11,10 @@ from factyu.web.app import app
 
 
 def main():
-    # Create the QApplication first
+    # Create the QApplication first and set its icon.
     app_qt = QApplication(sys.argv)
+    icon_path = os.path.abspath("factyu/FactYouIconGPT4o.png")
+    app_qt.setWindowIcon(QIcon(QPixmap(icon_path)))
 
     # Create QSettings object to store application settings
     settings = QSettings("FactYou", "FactYouApp")
