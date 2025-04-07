@@ -1,26 +1,53 @@
 import pickle
+import shutil
 import sqlite3
 import subprocess
 
 import spacy
 from sentence_transformers import SentenceTransformer
 
-from factyu.config import DB_PATH
+from factyu.config import DB_PATH, OLLAMA_BINARY_NAME
 
 nlp = spacy.load("en_core_web_sm")
 
 
 def run_contextualization(db_path=None, progress_callback=None, final_callback=None):
     """
-    Run the contextualization code to add context to fragments that are incomplete.
+    Run the contextualization process on the database.
     Also, add a new column "Standalone" in the Referenced table if it doesn't exist.
     For each row (grouped by SrcDOI):
       - If is_dependent(Text) returns False, mark Standalone as True and set TextWtContext to Text.
       - Otherwise, combine the previous context with the current fragment (using TextInSentence if available)
         and mark Standalone as False.
+    If db_path is None, use the default from config.
     """
-    conn = sqlite3.connect(DB_PATH)
+    if db_path is None:
+        db_path = DB_PATH
+
+    if not check_ollama_available():
+        error_msg = "Ollama is not available in the system PATH. Please install Ollama to continue."
+        if progress_callback:
+            progress_callback(0, error_msg)
+        raise RuntimeError(error_msg)
+
+    # First check if context already exists
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+
+    # Check if TextWtContext column has any non-empty values
+    cursor.execute(
+        "SELECT COUNT(*) FROM Referenced WHERE TextWtContext IS NOT NULL AND TextWtContext != ''"
+    )
+    context_count = cursor.fetchone()[0]
+
+    if context_count > 0:
+        # Context already exists
+        if progress_callback:
+            progress_callback(100, "Context already exists.")
+        if final_callback:
+            final_callback()
+        conn.close()
+        return
 
     # Ensure "Standalone" column exists in the Referenced table.
     cursor.execute("PRAGMA table_info(Referenced)")
@@ -129,18 +156,50 @@ def is_dependent(sentence: str) -> bool:
     return False
 
 
+def check_ollama_available():
+    """
+    Check if Ollama is available in the system PATH and the required model is installed.
+    Returns True if available, False otherwise.
+    """
+    # Check if ollama command is available
+    if shutil.which(OLLAMA_BINARY_NAME) is None:
+        return False
+
+    # Check if we can run a basic ollama command
+    try:
+        result = subprocess.run(
+            [OLLAMA_BINARY_NAME, "list"], capture_output=True, text=True, timeout=5
+        )
+        return result.returncode == 0
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return False
+
+
 def generate_standalone_sentence_ollama(context, incomplete_chunk):
     """
     Constructs a prompt for the model and runs 'ollama run' to obtain a standalone sentence.
     Assumes that 'ollama' is in your PATH and that your desired model is the default.
     """
+    # Check if Ollama is available
+    if not check_ollama_available():
+        raise RuntimeError(
+            "Ollama is not available in the system PATH. Please install Ollama to continue."
+        )
+
     prompt = f"Rewrite the following sentence fragments to add missing the context to transform the incomplete clause (missing a subject, predicate, or verb) to be a standalone sentence with all the context needed to be understood. Do not write anything else, do not say  Here is the rewritten sentence, provide only the output requested and nothing else, and do not rewrite any part of the incomplete. Context: '{context}' Incomplete: '{incomplete_chunk}' Standalone Sentence:"
 
     # Build the command. Adjust the model name if needed (e.g., "llama" or another name).
-    cmd = ["ollama", "run", "llama3", prompt]
+    cmd = [OLLAMA_BINARY_NAME, "run", "llama3", prompt]
 
     # Execute the command and capture the output.
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "Ollama process timed out. Please check your Ollama installation."
+        )
+    except subprocess.SubprocessError as e:
+        raise RuntimeError(f"Error running Ollama: {str(e)}")
 
     # Check for errors.
     if result.returncode != 0:

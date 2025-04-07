@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import threading
 
@@ -6,9 +7,17 @@ from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
-from factyu.config import FLASK_HOST, FLASK_PORT
+from factyu.config import FLASK_HOST, FLASK_PORT, OLLAMA_BINARY_NAME
 from factyu.ui.desktop import MainWindow
 from factyu.web.app import app
+
+
+def check_ollama_available():
+    """
+    Check if Ollama is available in the system PATH.
+    Returns True if available, False otherwise.
+    """
+    return shutil.which(OLLAMA_BINARY_NAME) is not None
 
 
 def main():
@@ -32,6 +41,15 @@ def main():
                 None, "Error", "Valid email is required to use the application."
             )
             sys.exit(1)
+
+    # Check if Ollama is available
+    if not check_ollama_available():
+        QMessageBox.critical(
+            None,
+            "Ollama Not Found",
+            "Ollama could not be found in your system PATH. Please install Ollama and ensure it's properly set up before running FactYou.",
+        )
+        sys.exit(1)
 
     # Start Flask in a separate thread
     flask_thread = threading.Thread(

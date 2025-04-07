@@ -38,8 +38,11 @@ if not os.path.exists(CACHE_DIR):
 # Base directory of the project
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Allow overriding database path via environment variable (for production deployments)
+# Allow overriding database path via environment variable
 ENV_DB_PATH = os.environ.get("FACTYU_DB_PATH")
+
+# set name of Ollama binary to look for in path
+OLLAMA_BINARY_NAME = "ollama"
 
 # Database path settings:
 # 1. If --clean is set: Use a temporary database (data will be lost when the application exits)

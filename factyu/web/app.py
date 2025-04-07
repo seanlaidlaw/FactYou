@@ -76,6 +76,11 @@ def contextualize_fragments():
     except Exception as e:
         error_message = f"Fragment contextualization failed: {e}"
         socketio.emit("progress", {"percentage": 0, "message": error_message})
+
+        # Check if this is an Ollama-related error
+        if "Ollama" in str(e):
+            socketio.emit("ollama_error", {"message": str(e)})
+
         return jsonify({"message": error_message}), 500
 
 

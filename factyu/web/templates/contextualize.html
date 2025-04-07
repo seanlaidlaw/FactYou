@@ -83,7 +83,7 @@
     </style>
     <!-- Include the QWebChannel JavaScript library -->
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
   </head>
 
   <body>
@@ -107,46 +107,57 @@
     </div>
 
     <script>
-      var socket = io();
+      // Connect to the Socket.IO server.
+      const socket = io();
+      const progressBar = document.getElementById("progress-bar");
+      const progressText = document.getElementById("warnings");
+      let bridge;
 
+      // When a "progress" event is received, update the progress bar.
       socket.on("progress", function (data) {
-        document.getElementById("progress-bar").value = data.percentage;
-        var warningsDiv = document.getElementById("warnings");
-        warningsDiv.innerHTML += "<p>" + data.message + "</p>";
+        progressBar.value = data.percentage;
+        progressText.innerHTML += "<p>" + data.message + "</p>";
 
-        // If progress reaches 100%, wait briefly then redirect to index
+        // If progress is complete (100%), wait a bit and then redirect to index.
         if (data.percentage === 100) {
-          document.getElementById("result").innerText =
-            "Contextualization complete. Redirecting to search page...";
-          // Add a 2-second delay before redirecting to allow the user to see the completion message
           setTimeout(function () {
             window.location.href = "/";
           }, 2000);
         }
       });
 
-      // Window load event to auto-start contextualization
+      // Handle Ollama-related errors
+      socket.on("ollama_error", function (data) {
+        // Use QT WebChannel to communicate with the desktop app
+        if (bridge) {
+          // Call the method on the bridge to show the Ollama error dialog
+          bridge.contextualizationError(data.message);
+        }
+      });
+
+      // Set up the QWebChannel to communicate with Qt.
       window.onload = function () {
+        new QWebChannel(qt.webChannelTransport, function (channel) {
+          // Store the bridge for use later
+          bridge = channel.objects.bridge;
+        });
+
+        // Start the contextualization process immediately when the page loads.
         fetch("/contextualize_fragments", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
         })
           .then((response) => response.json())
           .then((data) => {
-            document.getElementById("result").innerText = data.message;
-            // If we received a success message but didn't redirect via the progress event,
-            // redirect here as a fallback
-            if (data.message === "Contextualization complete.") {
+            if (data.redirect) {
               setTimeout(function () {
-                window.location.href = "/";
+                window.location.href = data.redirect;
               }, 2000);
             }
           })
           .catch((error) => {
             console.error("Error:", error);
-            document.getElementById("result").innerText = "An error occurred.";
+            progressText.innerHTML =
+              "An error occurred during contextualization.";
           });
       };
     </script>

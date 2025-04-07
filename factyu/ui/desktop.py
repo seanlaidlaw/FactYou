@@ -20,13 +20,15 @@ class Bridge(QObject):
     disableButton = pyqtSignal()
     # Signal to indicate extraction is complete so we can redirect.
     extractionComplete = pyqtSignal()
+    # Signal for error during contextualization
+    ollamaError = pyqtSignal(str)
 
     def __init__(self, user_email):
         super().__init__()
         self.user_email = user_email
         self.extraction_done = False
 
-    @pyqtSlot(result=str)
+    @pyqtSlot(result="QString")
     def selectBibliography(self):
         # Open native folder selection dialog.
         folder = QFileDialog.getExistingDirectory(None, "Select Bibliography Folder")
@@ -77,6 +79,11 @@ class Bridge(QObject):
         # This callback is called from the extraction process.
         self.progressUpdated.emit(percentage, message)
 
+    @pyqtSlot(str)
+    def contextualizationError(self, error_message):
+        """Called from JavaScript when an Ollama-related error occurs"""
+        self.ollamaError.emit(error_message)
+
 
 class MainWindow(QMainWindow):
     def __init__(self, user_email):
@@ -99,6 +106,7 @@ class MainWindow(QMainWindow):
         # Connect signals to slots.
         self.bridge.disableButton.connect(self.disable_html_button)
         self.bridge.extractionComplete.connect(self.check_and_redirect)
+        self.bridge.ollamaError.connect(self.handle_contextualization_error)
 
         # Load your splash page (or Flask URL).
         self.web_view.setUrl(QUrl(self.flask_url))
@@ -221,3 +229,19 @@ class MainWindow(QMainWindow):
             )
             js = "document.getElementById('selectBtn').disabled = false;"
             self.web_view.page().runJavaScript(js)
+
+    def handle_contextualization_error(self, error_message):
+        """Handle errors that occur during contextualization process"""
+        if "Ollama" in error_message:
+            QMessageBox.critical(
+                self,
+                "Ollama Error",
+                f"There was an error with Ollama: {error_message}\n\n"
+                "Please make sure Ollama is installed and properly configured.",
+            )
+        else:
+            QMessageBox.critical(
+                self,
+                "Contextualization Error",
+                f"Error during contextualization: {error_message}",
+            )
