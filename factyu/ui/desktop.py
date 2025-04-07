@@ -1,7 +1,9 @@
+import os
 import sqlite3
 import threading
+import time
 
-from PyQt6.QtCore import QObject, QUrl, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QTimer, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
@@ -22,6 +24,7 @@ class Bridge(QObject):
     def __init__(self, user_email):
         super().__init__()
         self.user_email = user_email
+        self.extraction_done = False
 
     @pyqtSlot(result=str)
     def selectBibliography(self):
@@ -40,16 +43,35 @@ class Bridge(QObject):
 
         # Start extraction in a background thread.
         extraction_thread = threading.Thread(
-            target=run_extraction,
-            args=(folder, self.user_email),
-            kwargs={
-                "progress_callback": self.update_progress,
-                "final_callback": self.extractionComplete.emit,
-            },
+            target=self.run_extraction_with_callback,
+            args=(folder,),
             daemon=True,
         )
         extraction_thread.start()
         return f"Extraction started for folder:\n{folder}"
+
+    def run_extraction_with_callback(self, folder):
+        """Wrapper function to run extraction and properly signal completion"""
+        try:
+            print("Starting extraction process...")
+            run_extraction(
+                folder,
+                self.user_email,
+                progress_callback=self.update_progress,
+                final_callback=self.on_extraction_finished,
+            )
+        except Exception as e:
+            print(f"Error during extraction: {e}")
+            self.extractionComplete.emit()  # Still emit the signal to handle the error case
+
+    def on_extraction_finished(self):
+        """Called when extraction is finished to ensure database writes are complete"""
+        print("Extraction process finished. Ensuring database is updated...")
+        # Add a small delay to ensure DB writes are complete
+        time.sleep(1)
+        self.extraction_done = True
+        print("Emitting extractionComplete signal")
+        self.extractionComplete.emit()
 
     def update_progress(self, percentage, message):
         # This callback is called from the extraction process.
@@ -83,15 +105,72 @@ class MainWindow(QMainWindow):
         self.web_view.page().runJavaScript(js)
 
     def check_and_redirect(self):
+        print("check_and_redirect called - checking if extraction was successful")
         try:
+            # Check database directly using sqlite3 first for diagnostic purposes
+            print(f"Checking database at: {DB_PATH}")
+            show_error = False  # Initialize the show_error variable
+            if not os.path.exists(DB_PATH):
+                print(f"WARNING: Database file not found at {DB_PATH}")
+                show_error = True
+            else:
+                print(f"Database file exists at {DB_PATH}")
+                try:
+                    # Direct check of the table contents
+                    direct_conn = sqlite3.connect(DB_PATH)
+                    direct_cursor = direct_conn.cursor()
+
+                    # Check if Referenced table exists
+                    direct_cursor.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='Referenced';"
+                    )
+                    if not direct_cursor.fetchone():
+                        print("WARNING: Referenced table does not exist")
+                        show_error = True
+                    else:
+                        # Count records in Referenced table directly
+                        direct_cursor.execute("SELECT COUNT(*) FROM Referenced")
+                        direct_count = direct_cursor.fetchone()[0]
+                        print(f"Direct count from database: {direct_count}")
+
+                        if direct_count > 0:
+                            print("SUCCESS: Records found via direct database access")
+                            direct_conn.close()
+                            print("Reloading main page to show contextualize.html")
+                            QTimer.singleShot(
+                                500,
+                                lambda: self.web_view.setUrl(
+                                    QUrl("http://127.0.0.1:5000/")
+                                ),
+                            )
+                            return
+                        else:
+                            print(
+                                "WARNING: No records found via direct database access"
+                            )
+                            show_error = True
+
+                    direct_conn.close()
+                except Exception as db_e:
+                    print(f"Error during direct database check: {db_e}")
+                    show_error = True
+
+            # As a backup, still try the ArticleDatabase approach
             from factyu.database.models import ArticleDatabase
 
             db = ArticleDatabase()
             count = db.get_referenced_count()
+            print(f"Referenced count from ArticleDatabase: {count}")
 
             if count > 0:
-                self.web_view.setUrl(QUrl("http://127.0.0.1:5000/"))
+                print(
+                    "Extraction successful, reloading page to show contextualize.html"
+                )
+                QTimer.singleShot(
+                    500, lambda: self.web_view.setUrl(QUrl("http://127.0.0.1:5000/"))
+                )
             else:
+                print("No records found in Referenced table")
                 QMessageBox.warning(
                     self,
                     "Extraction Issue",
@@ -99,7 +178,9 @@ class MainWindow(QMainWindow):
                 )
                 js = "document.getElementById('selectBtn').disabled = false;"
                 self.web_view.page().runJavaScript(js)
-        except sqlite3.OperationalError:
+            db.close()
+        except sqlite3.OperationalError as e:
+            print(f"Database error: {e}")
             QMessageBox.warning(
                 self,
                 "Extraction Issue",
@@ -107,5 +188,12 @@ class MainWindow(QMainWindow):
             )
             js = "document.getElementById('selectBtn').disabled = false;"
             self.web_view.page().runJavaScript(js)
-        finally:
-            db.close()
+        except Exception as e:
+            print(f"Unexpected error checking extraction results: {e}")
+            QMessageBox.warning(
+                self,
+                "Extraction Issue",
+                f"An unexpected error occurred: {e}",
+            )
+            js = "document.getElementById('selectBtn').disabled = false;"
+            self.web_view.page().runJavaScript(js)

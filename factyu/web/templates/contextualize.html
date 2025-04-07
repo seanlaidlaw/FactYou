@@ -95,8 +95,9 @@
 
     <div class="container">
       <h1>FactYou</h1>
-      <p>Click the button below to start contextualizing fragments.</p>
-      <button id="contextualizeBtn">Start Contextualization</button>
+      <p>
+        Contextualizing fragments... Please wait while this process completes.
+      </p>
       <div id="result"></div>
       <!-- Progress bar and warnings -->
       <div id="progress-container">
@@ -112,29 +113,42 @@
         document.getElementById("progress-bar").value = data.percentage;
         var warningsDiv = document.getElementById("warnings");
         warningsDiv.innerHTML += "<p>" + data.message + "</p>";
+
+        // If progress reaches 100%, wait briefly then redirect to index
+        if (data.percentage === 100) {
+          document.getElementById("result").innerText =
+            "Contextualization complete. Redirecting to search page...";
+          // Add a 2-second delay before redirecting to allow the user to see the completion message
+          setTimeout(function () {
+            window.location.href = "/";
+          }, 2000);
+        }
       });
 
-      document
-        .getElementById("contextualizeBtn")
-        .addEventListener("click", function () {
-          this.disabled = true;
-
-          fetch("/contextualize_fragments", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
+      // Window load event to auto-start contextualization
+      window.onload = function () {
+        fetch("/contextualize_fragments", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            document.getElementById("result").innerText = data.message;
+            // If we received a success message but didn't redirect via the progress event,
+            // redirect here as a fallback
+            if (data.message === "Contextualization complete.") {
+              setTimeout(function () {
+                window.location.href = "/";
+              }, 2000);
+            }
           })
-            .then((response) => response.json())
-            .then((data) => {
-              document.getElementById("result").innerText = data.message;
-            })
-            .catch((error) => {
-              console.error("Error:", error);
-              document.getElementById("result").innerText =
-                "An error occurred.";
-            });
-        });
+          .catch((error) => {
+            console.error("Error:", error);
+            document.getElementById("result").innerText = "An error occurred.";
+          });
+      };
     </script>
   </body>
 </html>

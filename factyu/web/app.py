@@ -56,16 +56,27 @@ def set_bibliography():
 @app.route("/contextualize_fragments", methods=["POST"])
 def contextualize_fragments():
     if db_context_exists():
-        return jsonify({"message": "Context already exists."}), 200
+        # If context already exists, send a message with redirect info
+        socketio.emit(
+            "progress",
+            {"percentage": 100, "message": "Context already exists. Redirecting..."},
+        )
+        return jsonify({"message": "Context already exists.", "redirect": "/"}), 200
 
     def progress_callback(percentage, message):
         socketio.emit("progress", {"percentage": percentage, "message": message})
 
     try:
         run_contextualization(progress_callback=progress_callback)
-        return jsonify({"message": "Contextualization complete."}), 200
+        # Ensure we send a final 100% progress update
+        socketio.emit(
+            "progress", {"percentage": 100, "message": "Contextualization complete!"}
+        )
+        return jsonify({"message": "Contextualization complete.", "redirect": "/"}), 200
     except Exception as e:
-        return jsonify({"message": f"Fragment contextualization failed: {e}"}), 500
+        error_message = f"Fragment contextualization failed: {e}"
+        socketio.emit("progress", {"percentage": 0, "message": error_message})
+        return jsonify({"message": error_message}), 500
 
 
 @app.route("/search", methods=["POST"])
@@ -80,18 +91,26 @@ def db_exists():
 
 
 def db_context_exists():
+    print("Checking if database context exists...")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
     tables = cursor.fetchall()
+    print(f"Tables in database: {tables}")
     if ("Referenced",) not in tables:
+        print("Referenced table not found in database")
         return False
 
     cursor.execute("SELECT TextWtContext FROM Referenced")
     rows = cursor.fetchall()
+    non_empty_count = sum(
+        1 for row in rows if row[0] is not None and row[0].strip() != ""
+    )
+    print(f"Found {len(rows)} total rows and {non_empty_count} rows with context")
     all_empty = all(row[0] is None or row[0].strip() == "" for row in rows)
 
     context_exists = not all_empty
+    print(f"Context exists: {context_exists}")
     return context_exists
 
 
