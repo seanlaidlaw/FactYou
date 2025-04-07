@@ -6,6 +6,7 @@ from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
+from factyu.config import FLASK_HOST, FLASK_PORT
 from factyu.ui.desktop import MainWindow
 from factyu.web.app import app
 
@@ -34,7 +35,14 @@ def main():
 
     # Start Flask in a separate thread
     flask_thread = threading.Thread(
-        target=app.run, kwargs={"debug": False}, daemon=True
+        target=app.run,
+        kwargs={
+            "host": FLASK_HOST,
+            "port": FLASK_PORT,
+            "debug": False,
+            "use_reloader": False,  # Disable reloader in threaded context
+        },
+        daemon=True,
     )
     flask_thread.start()
 

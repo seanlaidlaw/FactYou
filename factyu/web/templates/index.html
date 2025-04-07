@@ -2,10 +2,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Search Similar Sentence</title>
+    <title>Fact You - Semantic Search Lookup</title>
     <style>
+      @import url("https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&family=Shadows+Into+Light&family=Source+Sans+3:ital,wght@0,200..900;1,200..900&display=swap");
+
+      .roboto-font-300 {
+        font-family: "Roboto", "Helvetica Neue", "Arial", sans-serif;
+        font-optical-sizing: auto;
+        font-weight: 300;
+        font-style: normal;
+        font-variation-settings: "wdth" 100;
+      }
+
       body {
-        font-family: "Arial", sans-serif;
+        font-family: "Roboto", "Helvetica Neue", "Arial", sans-serif;
         background-color: #e6e6e6;
         margin: 0;
         padding: 0;
@@ -45,15 +55,30 @@
       }
 
       .result-text {
-        font-size: 18px;
-        line-height: 1.5;
-        font-style: italic;
+        font-size: 12.5pt;
+        line-height: 1.3;
+        margin-bottom: 0.7em;
+      }
+
+      .result-context {
+        margin-top: 4px;
+        font-size: 12px;
+        font-weight: 300;
+        color: #666666;
+        line-height: 1.4;
+        margin-bottom: 3px;
+        border-left: 2px solid #ccc;
+        padding-left: 5px;
+      }
+
+      .result-context .highlight {
+        font-weight: 400;
+        color: #333;
       }
 
       .result-doi {
-        margin-top: 5px;
-        font-size: 14px;
         color: #007bff;
+        font-size: 13px;
       }
 
       .result-doi:hover {
@@ -65,7 +90,6 @@
         font-size: small;
         font-style: oblique;
         color: dimgrey;
-        text-transform: lowercase;
       }
 
       .result-other-div {
@@ -75,8 +99,8 @@
       .show-citation {
         cursor: pointer;
         color: #007bff;
-        /* You can adjust the color */
         text-decoration: underline;
+        font-size: 13px;
       }
     </style>
   </head>
@@ -113,8 +137,47 @@
 
               let resultText = document.createElement("div");
               resultText.className = "result-text";
-              resultText.textContent = entry.Text;
+              resultText.textContent = entry.TextWtContext;
               resultDiv.appendChild(resultText);
+
+              // Add the TextInSentence with Text highlighted in bold
+              if (entry.TextInSentence && entry.Text) {
+                let contextDiv = document.createElement("div");
+                contextDiv.className = "result-context roboto-font-300";
+
+                // Create highlighted text by replacing the Text within TextInSentence with bold version
+                const context = entry.TextInSentence;
+                const textToHighlight = entry.Text;
+
+                // Safely escape the text for regex
+                const escapeRegExp = (string) => {
+                  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                };
+
+                // Replace with highlighted version (if found in context)
+                const safeText = escapeRegExp(textToHighlight);
+                const regex = new RegExp(`(${safeText})`, "gi");
+
+                if (context.includes(textToHighlight)) {
+                  const parts = context.split(regex);
+
+                  parts.forEach((part) => {
+                    if (part.toLowerCase() === textToHighlight.toLowerCase()) {
+                      let span = document.createElement("span");
+                      span.className = "highlight";
+                      span.textContent = part;
+                      contextDiv.appendChild(span);
+                    } else if (part) {
+                      contextDiv.appendChild(document.createTextNode(part));
+                    }
+                  });
+                } else {
+                  // Fallback if the exact text is not found
+                  contextDiv.textContent = context;
+                }
+
+                resultDiv.appendChild(contextDiv);
+              }
 
               if (entry.RefDOIs) {
                 entry.RefDOIs.forEach((refdoi) => {

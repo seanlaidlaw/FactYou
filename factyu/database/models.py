@@ -114,11 +114,16 @@ class ArticleDatabase:
         if hasattr(self._local, "conn"):
             self._local.conn.close()
             del self._local.conn
-            if args.clean and self.db_path == DB_PATH:
-                try:
-                    os.remove(self.db_path)
-                except (OSError, FileNotFoundError):
-                    pass
 
     def __del__(self):
+        """Remove the temporary database file if running in clean mode, but only when the object is destroyed"""
+        # Close remaining connections
         self.close()
+
+        # Only delete the temporary database when the application is exiting (this object is being destroyed)
+        if args.clean and self.db_path == DB_PATH:
+            try:
+                print(f"Cleaning up temporary database at {self.db_path}")
+                os.remove(self.db_path)
+            except (OSError, FileNotFoundError):
+                pass

@@ -8,7 +8,7 @@ from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
-from factyu.config import DB_PATH
+from factyu.config import DB_PATH, FLASK_HOST, FLASK_PORT, args
 from factyu.extraction.parser import run_extraction
 from factyu.web.app import app
 
@@ -86,6 +86,10 @@ class MainWindow(QMainWindow):
         self.web_view = QWebEngineView(self)
         self.setCentralWidget(self.web_view)
 
+        # Construct Flask URL from config
+        self.flask_url = f"http://{FLASK_HOST}:{FLASK_PORT}"
+        print(f"Connecting to Flask server at: {self.flask_url}")
+
         # Set up QWebChannel.
         self.channel = QWebChannel()
         self.bridge = Bridge(user_email)
@@ -97,7 +101,7 @@ class MainWindow(QMainWindow):
         self.bridge.extractionComplete.connect(self.check_and_redirect)
 
         # Load your splash page (or Flask URL).
-        self.web_view.setUrl(QUrl("http://127.0.0.1:5000/"))
+        self.web_view.setUrl(QUrl(self.flask_url))
 
     def disable_html_button(self):
         # Run JavaScript to disable the "Select Bibliography" button.
@@ -110,6 +114,28 @@ class MainWindow(QMainWindow):
             # Check database directly using sqlite3 first for diagnostic purposes
             print(f"Checking database at: {DB_PATH}")
             show_error = False  # Initialize the show_error variable
+
+            # If running in clean mode with a new extraction, automatically go to contextualization
+            if args.clean:
+                print("Running in clean mode - checking if Referenced table exists")
+                direct_conn = sqlite3.connect(DB_PATH)
+                direct_cursor = direct_conn.cursor()
+                direct_cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='Referenced';"
+                )
+                if direct_cursor.fetchone():
+                    print(
+                        "Referenced table exists in clean mode - redirecting to contextualization"
+                    )
+                    direct_conn.close()
+                    QTimer.singleShot(
+                        500,
+                        lambda: self.web_view.setUrl(QUrl(self.flask_url)),
+                    )
+                    return
+                direct_conn.close()
+
+            # Continue with normal checks for non-clean mode
             if not os.path.exists(DB_PATH):
                 print(f"WARNING: Database file not found at {DB_PATH}")
                 show_error = True
@@ -139,9 +165,7 @@ class MainWindow(QMainWindow):
                             print("Reloading main page to show contextualize.html")
                             QTimer.singleShot(
                                 500,
-                                lambda: self.web_view.setUrl(
-                                    QUrl("http://127.0.0.1:5000/")
-                                ),
+                                lambda: self.web_view.setUrl(QUrl(self.flask_url)),
                             )
                             return
                         else:
@@ -167,7 +191,7 @@ class MainWindow(QMainWindow):
                     "Extraction successful, reloading page to show contextualize.html"
                 )
                 QTimer.singleShot(
-                    500, lambda: self.web_view.setUrl(QUrl("http://127.0.0.1:5000/"))
+                    500, lambda: self.web_view.setUrl(QUrl(self.flask_url))
                 )
             else:
                 print("No records found in Referenced table")

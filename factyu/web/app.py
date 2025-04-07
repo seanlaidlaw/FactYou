@@ -120,14 +120,14 @@ def find_most_similar_in_db(new_sentence):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     rows = c.execute(
-        "SELECT TextWtContext, TextEmbeddings, SrcDOI, RefDOI, RefOther FROM Referenced"
+        "SELECT TextWtContext, TextEmbeddings, SrcDOI, RefDOI, RefOther, Text, TextInSentence FROM Referenced"
     ).fetchall()
     conn.close()
 
     aggregated_results = {}
 
     for row in rows:
-        row_text, row_embedding, row_src, refdoi, refother = row
+        row_text, row_embedding, row_src, refdoi, refother, text, text_in_sentence = row
         unserialized_embedding = pickle.loads(row_embedding)
         distance = cosine(new_embedding, unserialized_embedding)
 
@@ -137,6 +137,8 @@ def find_most_similar_in_db(new_sentence):
                 "RefOther": [],
                 "source": row_src,
                 "distance": distance,
+                "Text": text,
+                "TextInSentence": text_in_sentence,
             }
 
         aggregated_results[row_text]["RefDOIs"].append(refdoi)
@@ -146,7 +148,9 @@ def find_most_similar_in_db(new_sentence):
     # Format for display
     most_similar_entries = [
         {
-            "Text": text,
+            "Text": results["Text"],
+            "TextWtContext": text,
+            "TextInSentence": results["TextInSentence"],
             "SrcDOI": results["source"],
             "RefDOIs": results["RefDOIs"],
             "RefOther": results["RefOther"],
