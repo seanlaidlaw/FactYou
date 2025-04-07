@@ -30,24 +30,30 @@ def run_contextualization(db_path=None, progress_callback=None, final_callback=N
             progress_callback(0, error_msg)
         raise RuntimeError(error_msg)
 
-    # First check if context already exists
+    # Connect to the database
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Check if TextWtContext column has any non-empty values
+    # Check if there are any rows that need contextualization
     cursor.execute(
-        "SELECT COUNT(*) FROM Referenced WHERE TextWtContext IS NOT NULL AND TextWtContext != ''"
+        "SELECT COUNT(*) FROM Referenced WHERE TextWtContext IS NULL OR TextWtContext = ''"
     )
-    context_count = cursor.fetchone()[0]
+    rows_needing_context = cursor.fetchone()[0]
 
-    if context_count > 0:
-        # Context already exists
+    if rows_needing_context == 0:
+        # No rows need contextualization
         if progress_callback:
-            progress_callback(100, "Context already exists.")
+            progress_callback(100, "All items already have context.")
         if final_callback:
             final_callback()
         conn.close()
         return
+
+    # Report starting contextualization
+    if progress_callback:
+        progress_callback(
+            0, f"Starting contextualization for {rows_needing_context} items"
+        )
 
     # Ensure "Standalone" column exists in the Referenced table.
     cursor.execute("PRAGMA table_info(Referenced)")
@@ -58,7 +64,9 @@ def run_contextualization(db_path=None, progress_callback=None, final_callback=N
         conn.commit()
 
     # Process rows grouped by SrcDOI.
-    cursor.execute("SELECT DISTINCT SrcDOI FROM Referenced")
+    cursor.execute(
+        "SELECT DISTINCT SrcDOI FROM Referenced WHERE TextWtContext IS NULL OR TextWtContext = ''"
+    )
     src_dois = [row[0] for row in cursor.fetchall()]
     total_groups = len(src_dois)
     group_index = 0
@@ -66,7 +74,7 @@ def run_contextualization(db_path=None, progress_callback=None, final_callback=N
     for src_doi in src_dois:
         group_index += 1
         cursor.execute(
-            "SELECT rowid, Text, TextInSentence FROM Referenced WHERE SrcDOI = ? ORDER BY rowid",
+            "SELECT rowid, Text, TextInSentence FROM Referenced WHERE (TextWtContext IS NULL OR TextWtContext = '') AND SrcDOI = ? ORDER BY rowid",
             (src_doi,),
         )
         rows = cursor.fetchall()
@@ -99,8 +107,10 @@ def run_contextualization(db_path=None, progress_callback=None, final_callback=N
             )
     conn.close()
     add_embeddings_to_db()
+
+    # Call the final callback if provided
     if final_callback:
-        final_callback("Contextualization complete.")
+        final_callback()
 
 
 def is_dependent(sentence: str) -> bool:

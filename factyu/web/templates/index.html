@@ -30,6 +30,42 @@
         box-shadow: 0px 2px 30px rgba(0, 0, 0, 0.05);
       }
 
+      .actions-bar {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 20px;
+      }
+
+      .add-bib-btn {
+        padding: 8px 12px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      .add-bib-btn:hover {
+        background-color: #0056b3;
+      }
+
+      #progress-container {
+        display: none;
+        margin-top: 20px;
+      }
+
+      #progress-bar {
+        width: 100%;
+        height: 25px;
+      }
+
+      #progress-message {
+        margin-top: 10px;
+        font-size: 14px;
+        color: #555;
+      }
+
       textarea {
         width: 100%;
         padding: 15px;
@@ -107,6 +143,17 @@
 
   <body>
     <div class="container">
+      <div class="actions-bar">
+        <button id="addBibBtn" class="add-bib-btn">
+          Add Bibliography File
+        </button>
+      </div>
+
+      <div id="progress-container">
+        <progress id="progress-bar" value="0" max="100"></progress>
+        <div id="progress-message"></div>
+      </div>
+
       <textarea
         name="sentence"
         placeholder="Start typing your sentence..."
@@ -115,7 +162,133 @@
       <div class="results"></div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
+      // Connect to Socket.IO for progress updates
+      const socket = io();
+      const progressBar = document.getElementById("progress-bar");
+      const progressMessage = document.getElementById("progress-message");
+      const progressContainer = document.getElementById("progress-container");
+      const searchTextarea = document.querySelector(
+        "textarea[name='sentence']"
+      );
+      const addBibBtn = document.getElementById("addBibBtn");
+
+      // Track whether we're in a processing state
+      let isProcessing = false;
+
+      // Function to disable/enable UI elements during processing
+      function setProcessingState(processing) {
+        isProcessing = processing;
+        searchTextarea.disabled = processing;
+        addBibBtn.disabled = processing;
+
+        if (processing) {
+          searchTextarea.placeholder = "Processing in progress... Please wait.";
+          addBibBtn.style.backgroundColor = "#cccccc";
+          addBibBtn.style.cursor = "not-allowed";
+        } else {
+          searchTextarea.placeholder = "Start typing your sentence...";
+          addBibBtn.style.backgroundColor = "#007bff";
+          addBibBtn.style.cursor = "pointer";
+        }
+      }
+
+      // Listen for progress updates during processing
+      socket.on("progress", function (data) {
+        console.log("Progress update:", data);
+
+        // Show progress container if it's not already visible
+        progressContainer.style.display = "block";
+
+        // Disable UI during processing
+        setProcessingState(true);
+
+        // Update progress bar and message
+        progressBar.value = data.percentage;
+        progressMessage.innerHTML = data.message;
+
+        // Only if progress is complete (100%), hide progress bar and reload page
+        if (data.percentage === 100) {
+          setTimeout(function () {
+            progressContainer.style.display = "none";
+            setProcessingState(false);
+            location.reload();
+          }, 2000);
+        }
+      });
+
+      // Handle Ollama errors if they occur
+      socket.on("ollama_error", function (data) {
+        progressMessage.innerHTML = `<span style="color:red">Error: ${data.message}</span>`;
+        // Re-enable UI after error
+        setTimeout(() => {
+          setProcessingState(false);
+        }, 5000);
+      });
+
+      // Handle add bibliography button click
+      document
+        .getElementById("addBibBtn")
+        .addEventListener("click", function () {
+          if (isProcessing || addBibBtn.disabled) return; // Prevent clicks while disabled or processing
+
+          // Create a file input element
+          const fileInput = document.createElement("input");
+          fileInput.type = "file";
+          fileInput.accept = ".bib";
+          fileInput.style.display = "none";
+          document.body.appendChild(fileInput);
+
+          // Trigger click on the file input
+          fileInput.click();
+
+          // Handle file selection
+          fileInput.addEventListener("change", function () {
+            if (fileInput.files.length > 0) {
+              const formData = new FormData();
+              formData.append("bib_file", fileInput.files[0]);
+
+              // Show progress container
+              progressContainer.style.display = "block";
+              progressBar.value = 0;
+              progressMessage.innerHTML = "Uploading file...";
+
+              // Disable UI during processing
+              setProcessingState(true);
+
+              // Upload the file
+              fetch("/add_bibliography", {
+                method: "POST",
+                body: formData,
+              })
+                .then((response) => {
+                  if (!response.ok) {
+                    throw new Error("Failed to upload file");
+                  }
+                  return response.json();
+                })
+                .then((data) => {
+                  // Keep processing state active - don't re-enable UI here
+                  progressMessage.innerHTML = "Processing bibliography...";
+                  console.log("Server response:", data.message);
+                })
+                .catch((error) => {
+                  console.error("Error:", error);
+                  progressMessage.innerHTML = `<span style="color:red">Error: ${error.message}</span>`;
+                  // Re-enable UI on error after a delay
+                  setTimeout(() => {
+                    setProcessingState(false);
+                    progressContainer.style.display = "none";
+                  }, 5000);
+                });
+            }
+
+            // Remove the file input from the DOM
+            document.body.removeChild(fileInput);
+          });
+        });
+
       function executeSearch(sentence) {
         if (!sentence) return; // Don't execute an empty search
 

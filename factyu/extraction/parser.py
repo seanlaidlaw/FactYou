@@ -96,24 +96,20 @@ def run_extraction(
 
     db = ArticleDatabase(db_path) if db_path else ArticleDatabase()
 
-    # TODO: remove this when finished testing as not portable
-    # Read in previously skipped DOIs
-    skipped_dois = []
-    import pandas as pd
+    # Filter out DOIs that are already fully processed (parsed=1)
+    # This prevents re-processing articles that are already in the database
+    # but still allows adding new DOIs or retrying previously failed ones
+    processed_dois = db.get_processed_dois()
+    new_dois = [doi for doi in bib_dois if doi not in processed_dois]
 
-    skipped_df = pd.read_csv("/Users/sl31/Downloads/Scanned_Table.csv")
-    skipped_dois = skipped_df[skipped_df["Skipped"] == 1]["DOI"].tolist()
-    # Remove previously skipped DOIs from processing
-    bib_dois = [doi for doi in bib_dois if doi not in skipped_dois]
     if progress_callback:
         progress_callback(
-            0, f"Processing {len(bib_dois)} DOIs after removing skipped ones"
+            5, f"Processing {len(new_dois)} new DOIs out of {len(bib_dois)} total"
         )
-    # END TEMP CODE TO REMOVE
 
     try:
         # 2. Scan the DOIs and save those not yet scanned.
-        for doi in bib_dois:
+        for doi in new_dois:
             if not db.doi_exists(doi):
                 pmc_id = get_pmc_from_doi(doi, user_email)
                 if pmc_id:
@@ -121,15 +117,26 @@ def run_extraction(
                 else:
                     db.save_scanned_doi(doi, None, skipped=1)
                     if progress_callback:
-                        progress_callback(0, f"No PMC version available for DOI: {doi}")
+                        progress_callback(
+                            10, f"No PMC version available for DOI: {doi}"
+                        )
 
         # 3. Process each article with a valid PMC ID.
-        articles = db.get_pmc_articles()
+        # Only process articles that haven't been successfully parsed yet
+        articles = db.get_unparsed_pmc_articles()
         total_articles = len(articles)
+
+        if total_articles == 0:
+            if progress_callback:
+                progress_callback(100, "No new articles to process.")
+            if final_callback:
+                final_callback()
+            return
+
         for idx, (doi, pmc_id) in enumerate(articles):
             try:
                 if progress_callback:
-                    percentage = int((idx / total_articles) * 100)
+                    percentage = 10 + int(90 * idx / total_articles)
                     progress_callback(
                         percentage, f"Processing article: DOI: {doi}, PMCID: {pmc_id}"
                     )
@@ -140,7 +147,7 @@ def run_extraction(
                 else:
                     warn_msg = f"Error obtaining data for DOI: {doi}"
                     if progress_callback:
-                        progress_callback(int((idx / total_articles) * 100), warn_msg)
+                        progress_callback(10 + int(90 * idx / total_articles), warn_msg)
             except Exception as e:
                 warn(f"Error processing DOI {doi}: {str(e)}")
 
@@ -149,6 +156,8 @@ def run_extraction(
 
     finally:
         db.close()
+
+    # Call the final callback if provided
     if final_callback:
         final_callback()
 

@@ -103,6 +103,24 @@ class ArticleDatabase:
             )
             return cursor.fetchall()
 
+    def get_processed_dois(self):
+        """Returns a list of DOIs that have already been processed (Parsed=1)"""
+        with ArticleDatabase.db_lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT DOI FROM Scanned WHERE Parsed == 1;")
+            return [row[0] for row in cursor.fetchall()]
+
+    def get_unparsed_pmc_articles(self):
+        """Returns a list of articles with PMCIDs that haven't been parsed yet"""
+        with ArticleDatabase.db_lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT DOI, PMCID FROM Scanned WHERE Skipped == 0 AND Parsed == 0 AND PMCID IS NOT NULL;"
+            )
+            return cursor.fetchall()
+
     def get_referenced_count(self):
         with ArticleDatabase.db_lock:
             with self._get_connection() as conn:
