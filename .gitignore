@@ -1,3 +1,5 @@
 articles.db
+build/
+dist/
 venv/
 tests/examplebib/test.bib
