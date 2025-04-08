@@ -1,13 +1,30 @@
+<img src="img/FactYouBanner.png" width="380" alt="FactYou">
+
 # FactYou
 
-A tool for extracting and analyzing scientific paper references.
+A machine-learning based tool for extracting and analyzing scientific paper references. It parses the references in a bibliography (.bib) file and allows searching of referenced sentences contained in the introduction of any of the articles in the bibliography.
+
+<p align="center">
+    <img src="img/FactYouDemo.gif" width="80%" alt="FactYou">
+</p>
+
+How it works:
+
+- parses bibliography for article DOIs
+- looks up the PMC identifiers for each of the DOIs
+- parses the PMC html for Introduction/Main/Background section
+- matches sentence and reference for each statement in the article's introdution section
+- sentence fragments that are incomplete clauses, are reworded using Ollama to generate standalone sentences that best represent what is being stated in the article sentence.
+- SentenceTransformers are used to compute the semantic embedding of each sentence which is compared to the user's search term by cosine similarity between the embeddings
 
 ## Installation
+
+FactYou uses a few machine learning libraries most of which can be installed with pip from the `requirements.txt`. The _exception_ to this is Ollama which must be installed by the user before FactYou can be run. Installation insctructions for Ollama on desktop can be found [here](https://ollama.com/download).
 
 ```bash
 # Clone the repository
 git clone https://github.com/seanlaidlaw/FactYou.git
-cd factyu
+cd FactYou
 
 # Install dependencies
 pip install -e .
@@ -15,46 +32,18 @@ pip install -e .
 
 ## Usage
 
-### Development Mode
-
-For development and testing, you can run the application with:
+To launch the application run the module with python:
 
 ```bash
 python -m factyu.main
 ```
 
-This uses a persistent database stored in your user data directory.
+This uses a persistent database stored in your user data directory in which it stores the extracted information from the bibliography files (.bib) passed to it.
 
-#### Testing with Clean Database
+#### Custom Host/Port Configuration
 
-If you want to use a temporary database for testing purposes:
-
-```bash
-python -m factyu.main --clean
-```
-
-**Note:** With the `--clean` flag, a temporary database is created and used for the entire session. The database persists for the duration of the application run, allowing you to extract and contextualize data, but it will be deleted when the application exits. This is useful for testing without affecting your persistent database.
-
-### Production Mode
-
-For production use, you can specify the host and port:
-
-```bash
-python -m factyu.main --host 0.0.0.0 --port 80
-```
-
-#### Custom Database Path
-
-In production, you may want to specify a custom database path. This can be done by setting the `FACTYU_DB_PATH` environment variable:
-
-```bash
-export FACTYU_DB_PATH=/path/to/your/database.db
-python -m factyu.main
-```
-
-#### Host/Port Configuration
-
-The application will listen on 127.0.0.1:5000 by default. For production, you should bind to 0.0.0.0 to accept connections from all interfaces:
+The application will listen on 127.0.0.1:5000 by default.
+If port is already in use, a different port can be manually set from the command line argument:
 
 ```bash
 python -m factyu.main --host 0.0.0.0 --port 80
@@ -67,29 +56,3 @@ The application stores data in a SQLite database. The default location is:
 - **Linux**: `~/.local/share/FactYou/references.db`
 - **macOS**: `~/Library/Application Support/FactYou/references.db`
 - **Windows**: `C:\Users\<Username>\AppData\Local\FactYouApp\FactYou\references.db`
-
-## Troubleshooting
-
-### No Records Found
-
-If you're running with the `--clean` flag and see "No Records Found" errors, check:
-
-1. **Database Initialization**: Make sure you've processed at least one bibliography folder in the current session.
-2. **Session Persistence**: Remember that the temporary database created with `--clean` only persists during the application's run. It will be created fresh each time you start the application, so you'll need to process your bibliography folder each time.
-
-For persistent storage:
-
-1. Run without the `--clean` flag
-2. Process your bibliography folder once
-3. The data will be preserved between application restarts
-
-### Production Deployment
-
-For production use, we recommend:
-
-1. **Never use `--clean`** as it will result in data loss
-2. Bind to all interfaces with `--host 0.0.0.0`
-3. Consider using a custom database path by setting the `FACTYU_DB_PATH` environment variable
-4. If running behind a proxy like Nginx, set the port to something like 8080 and configure the proxy accordingly
-
-## License
