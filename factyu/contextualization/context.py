@@ -7,10 +7,10 @@ import spacy
 from sentence_transformers import SentenceTransformer
 
 from factyu.config import DB_PATH, OLLAMA_BINARY_NAME
-from factyu.contextualization.fragment_detector import SentenceFragmentDetector
+from factyu.contextualization.fragment_detector import FragmentDetector
 
 nlp = spacy.load("en_core_web_sm")
-fragment_detector = SentenceFragmentDetector()
+fragment_detector = FragmentDetector()
 
 
 def run_contextualization(db_path=None, progress_callback=None, final_callback=None):

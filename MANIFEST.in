@@ -1,0 +1,2 @@
+include factyu/data/models/*
+recursive-include factyu/data/models *
