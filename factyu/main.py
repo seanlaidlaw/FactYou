@@ -2,6 +2,31 @@ import os
 import shutil
 import sys
 import threading
+from pathlib import Path
+
+# Add the project root to Python path
+project_root = Path(__file__).parent.parent
+sys.path.append(str(project_root))
+
+# Set Qt environment variables
+os.environ["QT_QPA_PLATFORM"] = "cocoa"
+os.environ["QT_MAC_WANTS_LAYER"] = "1"
+os.environ["QT_DEBUG_PLUGINS"] = "1"  # Enable plugin debugging
+
+# Get the site-packages directory
+import site
+
+site_packages = site.getsitepackages()[0]
+
+# Add Qt plugin paths
+qt_plugin_paths = [
+    os.path.join(site_packages, "PyQt6", "Qt6", "plugins"),
+    os.path.join(site_packages, "PyQt6_Qt6", "Qt6", "plugins"),
+    os.path.join(site_packages, "PyQt6_WebEngine_Qt6", "Qt6", "plugins"),
+]
+
+# Set QT_PLUGIN_PATH
+os.environ["QT_PLUGIN_PATH"] = os.pathsep.join(qt_plugin_paths)
 
 from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QIcon, QPixmap
@@ -67,6 +92,16 @@ def main():
     # Create and show the main window
     window = MainWindow(user_email)
     window.show()
+
+    # Set up signal handling for graceful shutdown
+    def signal_handler(signum, frame):
+        app_qt.quit()
+        sys.exit(0)
+
+    import signal
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
     sys.exit(app_qt.exec())
 

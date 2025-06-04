@@ -7,8 +7,10 @@ import spacy
 from sentence_transformers import SentenceTransformer
 
 from factyu.config import DB_PATH, OLLAMA_BINARY_NAME
+from factyu.contextualization.fragment_detector import SentenceFragmentDetector
 
 nlp = spacy.load("en_core_web_sm")
+fragment_detector = SentenceFragmentDetector()
 
 
 def run_contextualization(db_path=None, progress_callback=None, final_callback=None):
@@ -115,55 +117,11 @@ def run_contextualization(db_path=None, progress_callback=None, final_callback=N
 
 def is_dependent(sentence: str) -> bool:
     """
-    Analyze the dependency tree of the sentence and apply additional checks
-    to determine if it is incomplete.
-
-    The function checks for:
-      - Very short sentences (fewer than 4 tokens).
-      - Sentences that start with a verb, which often indicates a subordinate clause.
-      - Absence of a nominal subject (nsubj, nsubjpass, or csubj) for the main clause.
-      - (For linking verbs like "be", "seem", "become": absence of a predicate complement.)
-
-    Returns True if the sentence appears incomplete, False if it appears complete.
+    Analyze if a sentence is complete/standalone or needs contextualization.
+    Uses the fine-tuned model to make the determination.
     """
-    doc = nlp(sentence)
-
-    for sent in doc.sents:
-        tokens = list(sent)
-        # Basic length check: if the sentence has too few tokens, it's likely incomplete.
-        if len(tokens) < 4:
-            return True
-
-        # If the sentence starts with a verb, it may be a fragment (e.g., "causes damage...")
-        if tokens[0].pos_ == "VERB":
-            return True
-
-        # Check for the presence of a nominal subject.
-        subject_found = any(
-            token.dep_ in ("nsubj", "nsubjpass", "csubj") for token in sent
-        )
-        # Also check that there is at least one main verb (or auxiliary) in the sentence.
-        verb_found = any(token.pos_ in ("VERB", "AUX") for token in sent)
-
-        # Identify the root token (main predicate).
-        root = next((token for token in sent if token.dep_ == "ROOT"), None)
-        # For linking verbs, check if there is a predicate complement.
-        predicate_found = any(token.dep_ in ("attr", "acomp") for token in sent)
-
-        # If no subject or no verb is found, we consider the sentence incomplete.
-        if not subject_found or not verb_found:
-            return True
-
-        # If the root is a linking verb and there's no predicate complement, flag as incomplete.
-        if (
-            root is not None
-            and root.lemma_ in ("be", "seem", "become")
-            and not predicate_found
-        ):
-            return True
-
-    # If none of the checks flag the sentence as incomplete, assume it is complete.
-    return False
+    is_complete, _ = fragment_detector.is_standalone(sentence)
+    return not is_complete
 
 
 def check_ollama_available():
@@ -293,3 +251,68 @@ def add_embeddings_to_db():
 
     conn.commit()
     conn.close()
+
+
+def export_sentence_analysis_to_tsv(output_path, db_path=None):
+    """
+    Export sentence analysis results to a TSV file.
+
+    Args:
+        output_path (str): Path where the TSV file will be saved
+        db_path (str, optional): Path to the database. If None, uses default from config.
+    """
+    if db_path is None:
+        db_path = DB_PATH
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Query to get all relevant information
+    cursor.execute(
+        """
+        SELECT Text, TextInSentence, TextWtContext, Standalone, SrcDOI, RefDOI, RefOther
+        FROM Referenced
+        ORDER BY SrcDOI, rowid
+    """
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Write to TSV file
+    with open(output_path, "w", encoding="utf-8") as f:
+        # Write header
+        f.write(
+            "Original Text\tFull Context\tContextualized Text\tIs Complete\tSource DOI\tReference DOI\tOther Reference\n"
+        )
+
+        # Write data rows
+        for row in rows:
+            (
+                text,
+                text_in_sentence,
+                text_wt_context,
+                standalone,
+                src_doi,
+                ref_doi,
+                ref_other,
+            ) = row
+            # Replace tabs and newlines in text fields to avoid breaking TSV format
+            text = text.replace("\t", " ").replace("\n", " ") if text else ""
+            text_in_sentence = (
+                text_in_sentence.replace("\t", " ").replace("\n", " ")
+                if text_in_sentence
+                else ""
+            )
+            text_wt_context = (
+                text_wt_context.replace("\t", " ").replace("\n", " ")
+                if text_wt_context
+                else ""
+            )
+
+            # Convert boolean to Yes/No for better readability
+            is_complete = "Yes" if standalone else "No"
+
+            # Write row
+            f.write(
+                f"{text}\t{text_in_sentence}\t{text_wt_context}\t{is_complete}\t{src_doi}\t{ref_doi}\t{ref_other}\n"
+            )

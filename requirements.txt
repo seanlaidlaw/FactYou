@@ -19,10 +19,9 @@ exceptiongroup==1.2.2
 filelock==3.12.4
 Flask==2.3.3
 Flask-SocketIO==5.5.1
-fsspec==2023.9.1
 greenlet==2.0.2
 h11==0.14.0
-huggingface-hub==0.17.2
+huggingface-hub==0.16.4
 identify==2.5.29
 idna==3.4
 importlib-metadata==6.8.0
@@ -40,7 +39,6 @@ networkx==3.1
 nltk==3.8.1
 nodeenv==1.8.0
 numpy==1.26.0
-packaging==23.1
 pandas==2.2.3
 pathy==0.10.2
 Pillow==10.0.1
@@ -53,11 +51,8 @@ pydantic==2.3.0
 pydantic_core==2.6.3
 pynvim==0.4.3
 pyparsing==3.1.1
-PyQt6==6.8.1
 PyQt6-Qt6==6.8.2
-PyQt6-WebEngine==6.8.0
-PyQt6-WebEngine-Qt6==6.8.2
-PyQt6_sip==13.10.0
+PyQt6-WebEngine
 pytest==8.3.5
 python-dateutil==2.9.0.post0
 python-engineio==4.11.2
@@ -100,3 +95,5 @@ wasabi==1.1.2
 Werkzeug==2.3.7
 wsproto==1.2.0
 zipp==3.16.2
+datasets==2.14.5
+evaluate==0.4.0
